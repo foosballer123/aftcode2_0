@@ -127,7 +127,7 @@ if __name__ == '__main__':
     img_pub = rospy.Publisher('/ball_tracking_and_estimation', Image, queue_size = 1)
     mask_pub = rospy.Publisher('/ball_tracking_and_estimation_mask', Image, queue_size = 1)
     pos_pub = rospy.Publisher('/ball_pos', Twist, queue_size = 10) 
-
+    
     rate = rospy.Rate(60)
 
     print("Run")
@@ -137,15 +137,17 @@ if __name__ == '__main__':
     last_gray = None
     board_bounds = (0, 0, 639, 359)  # Add your actual board bounds if different
     pause = 0
+    i = 0
 	
     while not rospy.is_shutdown():
 
         if img_received:
             frame = rgb_img
-            #frame = warp(frame) # warping frame to match 'coordinate_pipeline.py'
+            frame = warp(frame) # warping frame to match 'coordinate_pipeline.py'
             
             velocity = (0, 0)
-
+            i += 1
+           
             white_mask = create_white_mask_hsv(frame)
             filtered_mask = filter_with_opening_and_growth(white_mask, kernel_size=7, growth_iterations=2)
             filtered_bgr = cv2.cvtColor(filtered_mask, cv2.COLOR_GRAY2BGR)
@@ -165,18 +167,21 @@ if __name__ == '__main__':
                     flow_pos = (int(p1[0][0][0]), int(p1[0][0][1]))
                     
                     # pred_pos = last position + time the ball traveled between frames
-                    pred_pos = (last_position[0] + last_velocity[0], last_position[1] + last_velocity[1])
+                    print("Last position + last velocity (x_n-1,v_x_n-1,y_n-1,v_y_n-1) "+str(i)+":", last_position[0], last_velocity[0], last_position[1], last_velocity[1])
+                    pred_pos = (int(last_position[0]) + int(last_velocity[0]), int(last_position[1]) + int(last_velocity[1]))
                     vx, vy = last_velocity
                     speed = math.hypot(vx, vy)
-                    if speed > 1000000:
+                    if speed > 0:
                         position = (int(0 * flow_pos[0] + 1 * pred_pos[0]),
                                     int(0 * flow_pos[1] + 1 * pred_pos[1]))
-                    else:
-                        position = (int(flow_pos[0]), int(flow_pos[1]))
+                        print("Super fast!! WOW!")
+                    #else:
+                    #    position = (int(flow_pos[0]), int(flow_pos[1]))
+                    #    print("Using flow B-)")
                     detections = 2
                     detection_method = "Optical Flow + Prediction"
                 else:
-                    position = (last_position[0] + last_velocity[0], last_position[1] + last_velocity[1])
+                    position = (int(last_position[0]) + int(last_velocity[0]), int(last_position[1]) + int(last_velocity[1]))
                     detections = 3
                     detection_method = "Fallback Prediction"
 
@@ -185,7 +190,8 @@ if __name__ == '__main__':
 			
 			# velocity = (dx / time between frames, dy / time between frames ) in pixels per second
             if position is not None and last_position is not None:
-                velocity = (position[0] - last_position[0], position[1] - last_position[1])
+                print("Last positions (x_n,x_n-1,y,y_n-1) "+str(i)+":", position[0], last_position[0], position[1], last_position[1])
+                velocity = (int(position[0]) - int(last_position[0]), int(position[1]) - int(last_position[1]))
 			
             #if (last_position != None) and ( abs(position[0] - last_position[0]) < 10 ):
             #    position = last_position
@@ -197,6 +203,7 @@ if __name__ == '__main__':
                 last_position = None
                 detection = 0
                 last_gray = None
+                speed = 0
                 
             last_velocity = velocity if position != last_position else last_velocity
             last_position = position
@@ -206,18 +213,28 @@ if __name__ == '__main__':
                 ball_pos.linear.x = position[0]
                 ball_pos.linear.y = position[1]
                 
-                ball_pos.angular.x = 0 #velocity[0]
-                ball_pos.angular.y = 0 #velocity[1]
+                ball_pos.angular.x = velocity[0]
+                ball_pos.angular.y = velocity[1]
                 
-                ball_pos.linear.z = DEFENSE.defense(position[1])
-                cv2.circle(frame, position, 15, (255, 0, 255), 3)
+                if ((abs(velocity[0]/(1/60)) <= 1000) and (abs(velocity[1]/(1/60)) <= 1000)):
+                    #ball_pos.linear.z = DEFENSE.defense(position[1])
+                    ball_pos.linear.z = (velocity[0]/(1/60)) # distance traveled / time between frames in pix/sec 
+                    ball_pos.angular.z = (velocity[1]/(1/60)) # distance traveled / time between frames in pix/sec 
+                
+                if detection_method == "Blob Detection":
+                    cv2.circle(frame, position, 15, (255, 0, 255), 3)
+                if detection_method == "Hough Circle Detection":
+                    cv2.circle(frame, position, 15, (0, 255, 0), 3)
+                if detection_method == "Optical Flow + Prediction":
+                    cv2.circle(frame, position, 15, (255, 0, 0), 3)
                 #print(velocity[0], velocity[1])
+                
             img_msg = CvBridge().cv2_to_imgmsg(frame, encoding="rgb8")
             mask_msg = CvBridge().cv2_to_imgmsg(filtered_mask, encoding="8UC1")
-
+      
             img_pub.publish(img_msg)
             mask_pub.publish(mask_msg)
             pos_pub.publish(ball_pos)
-
+            
         rate.sleep()
 

@@ -1,0 +1,11 @@
+st1_p0_hX_bCR_LV_HL
+st2_p0_hX_bTR_LV_DL
+st3_p120_hX_bBR_LV_DL
+st4_p0_hX_bCR_MV_HL
+st5_p0_hX_bTR_MV_DL
+st6_p120_hX_bBR_MV_DL
+st7_p0_hX_bCR_HV_HL
+st8_p0_hX_bTR_HV_DL
+st9_p120_hX_bBR_HV_DL
+st10_p60_hX_bCP_LV_VL
+st11_p60_hX_bCP_HV_VL
