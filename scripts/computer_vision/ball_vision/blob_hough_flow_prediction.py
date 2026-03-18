@@ -2,6 +2,12 @@ import cv2
 import numpy as np
 import math
 
+'''
+Original computer vision code that was used on the basis for the computer vision for the AFT Project.
+
+This code is not tuned for the coordinate system of the table and lacks any filtering techniques but offers a framework for a decent computer vision pipeline that uses Blob Detection -> Hough Transform -> Optical Flow -> Physics Based Estimation (in that order) to find the position of a white ball on a foosball table.
+'''
+
 def create_white_mask_hsv(frame):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 

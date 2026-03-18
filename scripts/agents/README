@@ -1,0 +1,1 @@
+I am considering "agents" any python process that can be spawned that is not integral to the regular functioning of the motor controllers, solver, or computer vision pipeline. These scripts may perform actions on the table but have no significant reason to exist besides being somewhat convenient.

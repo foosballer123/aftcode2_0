@@ -4,6 +4,12 @@ from std_msgs.msg import Float32
 from geometry_msgs.msg import Twist
 import argparse 
 
+'''
+Mov agent moves the subscribed motor to a desired position passed through terminal.
+
+THIS SCRIPT NEEDS TO BE UPDATED IF THE COORDINATE SYSTEM IS CONVERTED TO METRIC!!!
+'''
+
 pos = 0
 pos_received = False
 omega_d = Twist()
@@ -20,7 +26,7 @@ def get_pos(msg):
 		
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(
-		description="Script that sends omega_d commands to the motor controller to move the players to a desired y-position passed 					from the terminal. (Desired position is in pixels with 0 being furthest from the hardware and 360 being closest.)"
+		description="Script that sends omega_d commands to the motor controller to move the players to a desired y-position passed 					from the terminal. (Desired position is in pixels with 0 being furthest from the hardware and 120 being closest.)"
 	)
 	parser.add_argument("--desired_pos", required=False, type=int, default=0)
 	args = parser.parse_args()

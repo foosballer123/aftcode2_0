@@ -6,6 +6,21 @@ import argparse
 import csv
 import math
 
+"""
+Script that subscribes to terminal passed rostopics and records them to a csv file.
+
+	This script is meant to be used in tandem with rosbags (found in the rosbags directory).
+	
+	This script is the updated version of data_agent.py and:
+	
+		1) Takes terminal input from the user about which ros topics to record
+		1) Waits for a first message to be published to a rostopic
+		3) Starts recording at a user defined sample time (default=60HZ) to a user named csv file
+	
+	After 10 seconds of repeated measurements the script automatically terminates.
+	
+"""
+
 # Defining data variables and flags
 player_pos = 0
 ball_pos = [[0,0],[0,0]] # [position (x,y), velocity (x,y)]

@@ -1,6 +1,6 @@
 import cv2 
 import numpy as np 
-import b_player_tracking_with_masking as pt_m 
+import player_tracking_with_masking as pt_m 
 import player_tracking as pt 
 
 import rospy
@@ -193,8 +193,114 @@ def increase_brightness(image, num):
     """
     
     return img
+
+
+
+# hsv filters might need to be adjusted based on lighting conditions
+def blob_search(image, mask):
+	
+    def draw_points(image, points, color=(0, 0, 255)):
+
+        for i in points:
+            cv2.circle(image, i, 5, color, -1)
+            
+    """      
+    def draw_lines(image, points): 
     
-       
+        distances = [] 
+
+        # for every coordinate in red_points_ext 
+        for i in range(len(points)): 
+            # compare it to every other coordinate 
+            for j in range(len(points)): 
+                # make sure it is not the exact same coordinate 
+                if points[j] != points[i]: 
+                    # and check if the y-coordinate is within 10 pixels of each other 
+                    if abs(points[i][1] - points[j][1]) <= 10: 
+                        # then check if the x-coordinate is within 75 pixels of each other 
+                        if abs(points[i][0] - points[j][0]) <= 75: 
+                            # then calculate the distance between the two points 
+                            dx = abs(points[i][0] - points[j][0]) 
+						
+						    # and draw a line between those two points
+                            cv2.line(image, (points[i][0], points[i][1]), (points[j][0]+int(0.5*dx), points[j][1]),(255,0,0),5) 
+                            distances.append(dx)
+    """
+                         
+    def draw_lines(image, points):       
+        
+        # fixed positions of the rods along the x axis (will change with perspective transformations!)
+        x_r_1 = 156
+        x_r_2 = 380
+        x_r_3 = 606
+        
+        for t in range(len(points)):  
+             
+            # checking if point is along one of the player rods 
+            if (abs(points[t][0] - x_r_1) < 15) or (abs(points[t][0] - x_r_2) < 15) or (abs(points[t][0] - x_r_3) < 15): 
+                        
+                # finding out which player rodwarp the point is a part of 
+                if (abs(points[t][0] - x_r_1) < 15): 
+                    x_r = x_r_1 
+                elif (abs(points[t][0] - x_r_2) < 15): 
+                    x_r = x_r_2 
+                elif (abs(points[t][0] - x_r_3) < 15): 
+                    x_r = x_r_3 
+                        
+                # finding the point on the same y-plane 
+                for f in range(len(points)): 
+                    if points[f] != points[t]:
+                    
+                        if (abs(points[t][1] - points[f][1]) <= 10) and (abs(points[f][0] - x_r) < 80):
+                
+                            dx = abs(points[t][0] - points[f][0])
+                            
+                            # draw a rectangle based on the distance between the foot and torso that encompasses the whole player
+                            if points[t][0] < points[f][0]:
+                                #cv2.line(image, (points[t][0], points[t][1]), (points[f][0]+int(0.5*dx), points[f][1]),(255,0,0),5)
+                                x1, y1, x2, y2 = (x_r-int(0.75*dx), points[t][1] - 10, points[f][0]+int(0.5*dx), points[t][1] + 10) 
+                                cv2.rectangle(image, (x1, y1), (x2, y2), color=255, thickness=-1)  
+                            elif points[t][0] >= points[f][0]:
+                                #cv2.line(image, (points[t][0], points[t][1]), (points[f][0]-int(0.5*dx), points[f][1]),(255,0,0),5)
+                                x1, y1, x2, y2 = (x_r+int(0.75*dx), points[t][1] - 10, points[f][0]-int(0.5*dx), points[t][1] + 10) 
+                                cv2.rectangle(image, (x1, y1), (x2, y2), color=255, thickness=-1)
+                            #else:
+                            #    x1, y1, x2, y2 = (x_r, points[t][1]-15, x_r, points[t][1] + 15) 
+                            #    cv2.rectangle(image, (x1, y1), (x2, y2), color=255, thickness=-1)    
+                             
+    img = image
+    # Create a binary image where red is white and everything else is black
+    binary_image = mask  # No need to invert the mask
+
+    # Find contours in the binary image
+    contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Filter contours based on size
+    min_area = 75  # Minimum area of the contour
+    max_area = 1000  # Maximum area of the contour
+
+    filtered_contours = [contour for contour in contours if min_area < cv2.contourArea(contour) < max_area]
+    centers = []
+    # Draw contours and find the center of each red object
+    for contour in filtered_contours:
+        # Calculate moments for each contour
+        M = cv2.moments(contour)
+        if M["m00"] != 0: #m00 is the zeroeth moment and is the area of the contour
+            # Calculate the center of the contour
+            cX = int(M["m10"] / M["m00"]) #m10 is the 1st order moment and is the sum of all of the x coordinates in the contour
+            cY = int(M["m01"] / M["m00"]) #m10 is the 1st order moment and is the sum of all of the y coordinates in the contour
+            # Printing centers
+            #print(f"Appx. Center of red object: ({cX}, {cY})")
+
+            # Append the current center to the history of centers
+            centers.append((cX, cY))
+	
+    draw_points(img, centers, color=(125,255,125))
+    draw_lines(img, centers)
+	
+    return img
+    
+    
 if __name__ == '__main__': 
 	
     rospy.init_node('functional_pipeline', anonymous = True) 
@@ -214,11 +320,12 @@ if __name__ == '__main__':
             #bright_frame = increase_brightness(normalized_frame, 30)
             warped = warp(frame) 
             hsv_frame = hsv_filter(warped, 1, 15, 9) # (frame, wrap?, wrap value, kernel size)
-
+            frame_with_blobs = blob_search(warped, hsv_frame)
+			
             # Note: The original 'rod_mask' is a grayscale image (single channel). 
             # If the publisher expects a color image (like the others), converting it to BGR8 
             # will treat the single channel as all three channels (creating a visible grayscale image). 
-            pipe_msg = CvBridge().cv2_to_imgmsg(hsv_frame, encoding="8UC1") 
+            pipe_msg = CvBridge().cv2_to_imgmsg(frame_with_blobs, encoding="bgr8") 
             
             #img_msg_4 = CvBridge().cv2_to_imgmsg(binary_mask_ext, encoding="8UC1") 
             pipe_pub.publish(pipe_msg) 

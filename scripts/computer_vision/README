@@ -1,0 +1,7 @@
+Computer vision scripts folder
+
+ball_vision has ball detection scripts
+
+player_vision has player detection and masking scripts
+
+testing has random files for testing various computer vision filtering strategies (on creation of tthe computer_vision folder many of the dependencies of the files in testing might have been moved around which might cause problems)

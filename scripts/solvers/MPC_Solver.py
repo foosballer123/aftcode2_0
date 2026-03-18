@@ -1,3 +1,9 @@
+# Created by Benjamin Simpson for Capstone II in Spring 2026
+
+# This code is the first iteration of the Foosball Table MPC Solver that attempts to track a balls trajectory for predictive following and kicking
+# This code does NOT utilize casadi symbolic logic in all areas and instead relies on a Time Varying Parameter (defined in the MPC Solver) to project the position of the ball across player zones
+# IMPORTANT: This code has largely become experimental and I have switched to using Casadi Symbolic Logic. The comments are messy and I have no idea if it still works. 
+
 import do_mpc
 from casadi import *
 from casadi.tools import *
@@ -78,19 +84,6 @@ class MPC_Solver:
         
     def player_callback(self, msg):
         self.motor1_pos = self.pps * msg.data  # converting steps into pixels
-        
-        # Applying an offset inside the callback so that the players match the ball offset
-        # Center player
-        #if (120 < self.ball_pos.linear.y < 240):
-        #    offset = 120 # self.P_D
-        # Far left
-        #elif (self.Y_MIN < self.ball_pos.linear.y <= 120):
-        #    offset = 0
-        # Far right
-        #elif (240 <= self.ball_pos.linear.y < self.Y_MAX):
-        #    offset = 2 * 120 # self.P_D
-        #else:
-        #    offset = 0
         
     def angular_callback(self, msg):
         offset = math.pi*0.3
@@ -176,7 +169,7 @@ class MPC_Solver:
         # TRY: Makes sure that the ball coordinate always stays within the table boundaries!
         # QUESTION: Does the solver account for the offset in the prediction horizon?
         
-        # The tvp function takes the current time step and projects it across the prediction horizon according to its internal dynamics.
+        # The tvp function takes the CURRENT TIME STEP and projects it across the prediction horizon according to its internal dynamics.
         # Meaning: If the dynamics are not included in the 'for k in range(self.mpc.settings.n_horizon + 1):' logic, they do not exist in the prediction horizon.
         # Meaning: The offset is only calculated as a function of the FIRST TIME STEP.
         # Meaning: Without any explicit table boundaries, the future positions of the ball would extend beyond them starting from the offset position.
@@ -233,6 +226,8 @@ class MPC_Solver:
                 
             r1_new = [v_x, r1_now[1]]
             
+            # This loop increments k and packs the result of its calculations according to the solver dynamics into the tvp_template so that the model can incorporate it into the prediction horizon
+            # The output of the tvp_template can only be seen by the solver which is why the calculations are repeated later for visualization
             for k in range(self.mpc.settings.n_horizon + 1):
                 tvp_template['_tvp', k, 'r0'] = casadi.DM([r0_now[0], r0_offset])
                 tvp_template['_tvp', k, 'r1'] = r1_new #r1_now
@@ -281,6 +276,7 @@ class MPC_Solver:
                 self.cmd_pub.publish(self.omega_cmd)
 
             self.rate.sleep() # QUESTION: The loop is running at 200 HZ but the solver is calculating based on a 1/60 dt. Does this cause problems?
+            # ANSWER: No because ball measurements are recieved at 60 HZ and if commands are produced at a HIGHER frequency they will still reflect a response to the underlying LOWER frequencies
 
 
 if __name__ == '__main__':

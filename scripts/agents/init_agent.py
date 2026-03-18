@@ -3,6 +3,10 @@ import rospy
 from std_msgs.msg import Float32
 from geometry_msgs.msg import Twist
 
+'''
+Init agent that resets the position of the subscribed motor to zero.
+'''
+
 enc = 0
 omega_d = Twist()
 

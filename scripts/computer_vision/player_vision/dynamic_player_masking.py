@@ -1,6 +1,6 @@
 import cv2 
 import numpy as np 
-import b_player_tracking_with_masking as pt_m 
+import player_tracking_with_masking as pt_m 
 import player_tracking as pt 
 
 import rospy
@@ -239,7 +239,7 @@ def blob_search(image, mask):
             # checking if point is along one of the player rods 
             if (abs(points[t][0] - x_r_1) < 15) or (abs(points[t][0] - x_r_2) < 15) or (abs(points[t][0] - x_r_3) < 15): 
                         
-                # finding out which player rod the point is a part of 
+                # finding out which player rodwarp the point is a part of 
                 if (abs(points[t][0] - x_r_1) < 15): 
                     x_r = x_r_1 
                 elif (abs(points[t][0] - x_r_2) < 15): 

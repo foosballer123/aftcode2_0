@@ -210,11 +210,11 @@ if __name__ == '__main__':
             last_gray = frame_gray.copy()
 			
             if position is not None:
-                ball_pos.linear.x = position[0]
-                ball_pos.linear.y = position[1]
+                ball_pos.linear.x = position[0] # CONVERT PIX TO METRIC (MAKE IT EASY TO UPDATE CONVERSION RATIOS)
+                ball_pos.linear.y = position[1] # CONVERT PIX TO METRIC
                 
-                ball_pos.angular.x = velocity[0]
-                ball_pos.angular.y = velocity[1]
+                ball_pos.angular.x = velocity[0] # CONVERT PIX TO METRIC
+                ball_pos.angular.y = velocity[1] # CONVERT PIX TO METRIC
                 
                 if ((abs(velocity[0]/(1/60)) <= 1000) and (abs(velocity[1]/(1/60)) <= 1000)):
                     #ball_pos.linear.z = DEFENSE.defense(position[1])

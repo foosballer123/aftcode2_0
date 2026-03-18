@@ -170,6 +170,24 @@ if __name__ == '__main__':
 	elif test_number == 10:
 		r0_init = [190,180]
 		r1_init = [0,-100]
+	# Test 11 -- Beginning of x testing
+	elif test_number == 11:
+		r0_init = [80,180]
+		r1_init = [0,0]
+	elif test_number == 12:
+		r0_init = [100,180]
+		r1_init = [0,0]
+	elif test_number == 13:
+		r0_init = [120,180]
+		r1_init = [0,0]
+	elif test_number == 14:
+		r0_init = [140,180]
+		r1_init = [0,0]	
+	# Test 15 -- Rapid shot!!
+	elif test_number == 15:
+		r0_init = [600,180]
+		r1_init = [-1000,0]
+				
 	# Test 11 -- ball spawns close to players and oscillates quickly between walls			
 	elif test_number == 11:
 		r0_init = [190,180]
