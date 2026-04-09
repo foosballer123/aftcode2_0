@@ -1,0 +1,9 @@
+<launch>
+  
+  <node pkg="aftcode2_0"
+        type="hello_world.py"
+        name="hello_world"
+        launch-prefix="bash -c 'sleep 10 &amp;&amp; $0 $@'; timeout 10"
+        output="screen" />
+
+</launch>

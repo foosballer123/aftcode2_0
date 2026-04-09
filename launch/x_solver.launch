@@ -1,0 +1,5 @@
+<launch>
+    <rosparam file="$(find aftcode2_0)/config/config.yaml" command="load"/>
+
+    <node pkg="aftcode2_0" type="MPC_X_Solver_Metric.py" name="mpc_x_solver" output="screen"/>
+</launch>

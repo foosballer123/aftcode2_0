@@ -1,0 +1,42 @@
+<launch>
+  
+  <rosparam file="$(find aftcode2_0)/config/config.yaml" command="load"/>
+  
+  <machine name="master"
+           address="localhost"
+           user="foobot"
+           default="true" />
+
+  <machine name="pi"
+           address="FooBot"
+           user="FooBot"
+           env-loader="/home/FooBot/ros_env.sh" />
+
+  <node pkg="rqt_plot"
+        type="rqt_plot"
+        name="rqt_plot"
+        args="/rod2_player_positions/data[0] /omega_d/angular/x"
+        output="screen" />
+
+  <node pkg="pi_codes"
+        type="spawn_rod.py"
+        name="rod_node"
+        args="--rod=1"
+        machine="pi"
+        output="screen" />
+
+  <node pkg="aftcode2_0"
+        type="pub_twist.sh"
+        name="cmd_vel_start"
+        args="5.0"
+        launch-prefix="bash -c 'sleep 3 &amp;&amp; $0 $@'; timeout 10"
+        output="screen" />
+
+  <node pkg="aftcode2_0"
+        type="pub_twist.sh"
+        name="cmd_vel_stop"
+        args="0.0"
+        launch-prefix="bash -c 'sleep 10 &amp;&amp; $0 $@'"
+        output="screen" />
+
+</launch>

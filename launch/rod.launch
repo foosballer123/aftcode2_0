@@ -1,0 +1,22 @@
+<launch>
+
+  <rosparam file="$(find aftcode2_0)/config/config.yaml" command="load"/>
+  
+  <machine name="master"
+           address="localhost"
+           user="foobot"
+           default="true" />
+
+  <machine name="pi"
+           address="FooBot"
+           user="FooBot"
+           env-loader="/home/FooBot/ros_env.sh" />
+
+  <node pkg="pi_codes"
+        type="spawn_rod.py"
+        name="rod_node"
+        args="--rod=1"
+        machine="pi"
+        output="screen" />
+
+</launch>

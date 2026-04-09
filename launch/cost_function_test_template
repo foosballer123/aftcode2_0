@@ -1,0 +1,9 @@
+
+1. Load cost function config
+2. Start low-level controller 
+3. Start solver
+4. Spawn ball [spawn_ball(x, y, v_x, v_y)]
+5. Visualize topics [/rod2_player_positions /omega_d /ball_pos]
+6. Observe and record results
+7. Create new config for next test based on results
+

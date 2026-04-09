@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import do_mpc
 from casadi import *
 from casadi.tools import *
@@ -39,40 +41,45 @@ class MPC_Solver:
 
     def __init__(self):
 
-        rospy.init_node('mpc_solver', anonymous=True)
+        rospy.init_node('mpc_y_solver', anonymous=True)
 
         rospy.Subscriber("/ball_pos", Twist, self.ball_callback, queue_size=10)
-        rospy.Subscriber("/rod1_player_positions", Float64MultiArray, self.player_callback, queue_size=10)
+        rospy.Subscriber("/rod1_player_positions", Float64MfrultiArray, self.player_callback, queue_size=10)
         
         self.cmd_pub = rospy.Publisher('/omega_d', Twist, queue_size=10)
 
         self.rate = rospy.Rate(200)
+       
+        self.dt = rospy.get_param('/y_solver_parameters/timestep')  # should match the refresh rate of the camera
         
-        ##### CONVERT GLOBAL VARIABLES TO METERS #####
+        self.ball_flag = False
         self.ball_pos = Twist()
         self.motor1_pos = Float64MultiArray()
         #self.motor2_pos = 0
+        
         self.omega_cmd = Twist()
-        self.ball_flag = False
+        self.rod_vel = 0
+        #self.rod_angular_vel = 0
         
         self.P_D = rospy.get_param('/table_measurements/distance_between_players') # distance between the players along the rod (even zones)
+        self.Z_D = rospy.get_param('/table_measurements/distance_to_clear_zone')
         self.W_D = rospy.get_param('/table_measurements/player_distance_from_wall')
-        self.dt = rospy.get_param('/y_solver_parameters/timestep')  # should match the refresh rate of the camera
+        self.zone_padding = 0.05
+        
         self.Y = rospy.get_param('/table_measurements/field_height')
         self.Y_MAX = self.Y
         self.Y_MIN = 0
+        
         self.X = rospy.get_param('/table_measurements/field_width')
         self.X_MAX = self.X
         self.X_MIN = 0
-        self.rod_vel = 0
-        #self.rod_angular_vel = 0
         self.X_ROD = rospy.get_param('/table_measurements/blue_rod_positions/rod_one')
-        #self.L = 50
-        #self.r_foot = 5
-        #self.r_ball = 15
+        
+        #self.L_P = 50
+        #self.R_F = 5
+        #self.R_B = 15
         
         self.steps_per_revolution = rospy.get_param('/table_measurements/steps_per_revolution')
-        
         self.meters_per_step = self.Y / rospy.get_param('/table_measurements/steps_across_field')  
         self.radians_per_meter = math.pow(self.meters_per_step, -1) * (2*math.pi / self.steps_per_revolution)	
         self.meters_per_radian = math.pow(self.radians_per_meter, -1)
@@ -97,10 +104,10 @@ class MPC_Solver:
     def init_mpc(self):
 
         input_weight = rospy.get_param('/y_solver_parameters/cost_function/input_weight')
-        position_error_weight = rospy.get_param('/y_solver_parameters/cost_function/position_error_weight')
-        velocity_error_weight = rospy.get_param('/y_solver_parameters/cost_function/velocity_error_weight')
         prediction_steps = rospy.get_param('/y_solver_parameters/prediction_steps')
         input_rate_weight = rospy.get_param('/y_solver_parameters/input_rate_weight')
+        position_error_weight = rospy.get_param('/y_solver_parameters/cost_function/position_error_weight')
+        velocity_error_weight = rospy.get_param('/y_solver_parameters/cost_function/velocity_error_weight')
         print("Solver Parameters")
         print("-----------------------------")
         print("Input Weight:", input_weight)
@@ -172,12 +179,12 @@ class MPC_Solver:
         self.mpc.bounds["lower", "_u", "y_vel"] = -v_max # in pix/sec
         self.mpc.bounds["upper", "_u", "y_vel"] = v_max # in pix/sec
 
-        self.mpc.bounds["lower", "_x", "y1"] = self.Y_MIN + self.W_D
-        self.mpc.bounds["upper", "_x", "y1"] = (self.Y/3) 
-        self.mpc.bounds["lower", "_x", "y2"] = (self.Y/3) 
-        self.mpc.bounds["upper", "_x", "y2"] = 2*(self.Y/3) 
-        self.mpc.bounds["lower", "_x", "y3"] = 2*(self.Y/3) 
-        self.mpc.bounds["upper", "_x", "y3"] = self.Y_MAX - self.W_D
+        self.mpc.bounds["lower", "_x", "y1"] = self.Y_MIN + self.W_D - self.zone_padding
+        self.mpc.bounds["upper", "_x", "y1"] = self.Y_MIN + self.W_D + self.Z_D
+        self.mpc.bounds["lower", "_x", "y2"] = (self.Y/3) - self.zone_padding
+        self.mpc.bounds["upper", "_x", "y2"] = 2*(self.Y/3) + self.zone_padding
+        self.mpc.bounds["lower", "_x", "y3"] = self.Y_MAX - (self.W_D + self.Z_D) 
+        self.mpc.bounds["upper", "_x", "y3"] = self.Y_MAX - self.W_D + self.zone_padding
         
         self.mpc.bounds["lower", "_x", "r0_x"] = self.X_MIN 
         self.mpc.bounds["upper", "_x", "r0_x"] = self.X_MAX 

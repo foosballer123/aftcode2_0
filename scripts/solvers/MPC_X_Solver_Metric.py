@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+
 import do_mpc
 from casadi import *
 from casadi.tools import *
 
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32
+from std_msgs.msg import Float64MultiArray
 import rospy
 import numpy as np
 import math
@@ -35,41 +38,52 @@ import math
 # TO-DO: Add table bounds to the MPC solver
 class MPC_Solver:
 
-    def __init__(self, Y=360, P_D=112):
+    def __init__(self):
 
-        rospy.init_node('mpc_solver', anonymous=True)
+        rospy.init_node('mpc_x_solver', anonymous=True)
 
         rospy.Subscriber("/ball_pos", Twist, self.ball_callback, queue_size=10)
         #rospy.Subscriber("/motor1_pos", Float32, self.player_callback, queue_size=10)
-        rospy.Subscriber("/motor2_rad", Float32, self.angular_callback, queue_size=10)
+        rospy.Subscriber("/rod2_player_positions", Float64MultiArray, self.angular_callback, queue_size=10)
         self.cmd_pub = rospy.Publisher('/omega_d', Twist, queue_size=10)
-
+        
         self.rate = rospy.Rate(200)
-
-        self.ball_pos = Twist()
-        self.motor1_pos = 0
-        self.motor2_rad = 0
-        self.omega_cmd = Twist()
+       
+        self.dt = rospy.get_param('/x_solver_parameters/timestep')  # should match the refresh rate of the camera
+        
         self.ball_flag = False
         self.rad_flag = False
+        self.ball_pos = Twist()
+        #self.motor1_pos = Float64MultiArray()
+        self.motor2_rad = Float64MultiArray()
         
-        ##### COPY GLOBAL VARIABLES FROM MPC_Y_Solver.py #####
-        self.P_D = P_D # distance between the players along the rod (used to calculate ball offset (r0))
-        self.dt = 1/60  # should match the refresh rate of the camera
-        self.Y = Y
-        self.Y_MAX = 360
-        self.Y_MIN = 0
+        self.omega_cmd = Twist()
         #self.rod_vel = 0
         self.rod_angular_vel = 0
-        self.X_ROD = 40
-        self.L = 50
-        self.r_foot = 5
-        self.r_ball = 15
         
-        self.pps = 120 / 525  # pixels per step (was 330/525 ... testing with 120/525)
-        self.rpp = math.pow(self.pps,-1) * (2*math.pi / 400)	# radians per pixel (was 0.025 ... testing calculation)
-        self.ppr = math.pow(self.rpp,-1)	# pixels per radian (was 40 ... testing calculation)
-
+        self.P_D = rospy.get_param('/table_measurements/distance_between_players') # distance between the players along the rod (even zones)
+        self.Z_D = rospy.get_param('/table_measurements/distance_to_clear_zone')
+        self.W_D = rospy.get_param('/table_measurements/player_distance_from_wall')
+        self.zone_padding = 0.05
+        
+        self.Y = rospy.get_param('/table_measurements/field_height')
+        self.Y_MAX = self.Y
+        self.Y_MIN = 0
+        
+        self.X = rospy.get_param('/table_measurements/field_width')
+        self.X_MAX = self.X
+        self.X_MIN = 0
+        self.X_ROD = rospy.get_param('/table_measurements/blue_rod_positions/rod_one')
+        
+        self.L_P = rospy.get_param('/table_measurements/player_length')
+        self.R_F = rospy.get_param('/table_measurements/approximate_player_foot_diameter')
+        self.R_B = rospy.get_param('/table_measurements/ball_diameter')
+        
+        self.steps_per_revolution = rospy.get_param('/table_measurements/steps_per_revolution')
+        self.meters_per_step = self.Y / rospy.get_param('/table_measurements/steps_across_field')  
+        self.radians_per_meter = math.pow(self.meters_per_step, -1) * (2*math.pi / self.steps_per_revolution)	
+        self.meters_per_radian = math.pow(self.radians_per_meter, -1)
+        
     def ball_callback(self, msg):
         """
         Callback function for receiving ball position data.
@@ -84,27 +98,38 @@ class MPC_Solver:
               
     def angular_callback(self, msg):
         #offset = math.pi*0.3
-        #rad = msg.data*((2*math.pi)/400) + offset # steps * rad/step = rad **CHECK THE CONTROLLER LOOP**
-        self.motor2_rad = msg.data 
+        self.motor2_rad = msg.data[0] 
         if self.rad_flag == False:
             self.rad_flag = True
             
     def init_mpc(self):
 
-        input_weight = 0.2
-        resting_weight = 0 #200
-        position_error_weight = 0 #25000
-        goal_error_weight = 1000
-        velocity_error_weight = 15
-        prediction_steps = 6
-        input_rate_weight = 0.2
-        omega_max = 31 # in rad/sec                  # KEEP OMEGA COMMANDS IN RAD/SEC
-
+        input_weight = rospy.get_param('/x_solver_parameters/cost_function/input_weight')
+        prediction_steps = rospy.get_param('/x_solver_parameters/prediction_steps')
+        input_rate_weight = rospy.get_param('/x_solver_parameters/input_rate_weight')
+        position_error_weight = rospy.get_param('/x_solver_parameters/cost_function/position_error_weight')
+        velocity_error_weight = rospy.get_param('/x_solver_parameters/cost_function/velocity_error_weight')
+        goal_error_weight = rospy.get_param('/x_solver_parameters/cost_function/goal_error_weight')
+        resting_weight = rospy.get_param('/x_solver_parameters/cost_function/resting_weight')
+        omega_max = rospy.get_param('/x_solver_parameters/max_input') # in rad/sec  
+        collision_gain_type = rospy.get_param('/x_solver_parameters/collision_gain_type')            
+        print("Solver Parameters")
+        print("-----------------------------")
+        print("Input Weight:", input_weight)
+        print("Position Error Weight:", position_error_weight)
+        print("Velocity Error Weight:", velocity_error_weight)
+        print("Prediction Horizon:", prediction_steps)
+        print("Goal Error Weight:", goal_error_weight)
+        print("Resting Weight:", resting_weight)
+        print("Input Rate Weight:", input_rate_weight) 
+        print("Collision Gain Type:", collision_gain_type)
+        
         model = do_mpc.model.Model('discrete')
 
         # for modeling the controlled variable
         theta = model.set_variable(var_type='_x', var_name='theta', shape=(1, 1))
         x_foot = model.set_variable(var_type='_x', var_name='x_foot', shape=(1, 1)) 
+        #z_foot = ???
         
         # make the ball a state variable 
         r0_x = model.set_variable(var_type='_x', var_name='r0_x', shape=(1, 1))
@@ -119,38 +144,44 @@ class MPC_Solver:
         )
         dist = model.aux["dist"]
         
-        #model.set_expression(
-        #    expr_name="collision_gain", expr=casadi.tanh(50 * casadi.fmax(0, 20 - casadi.fabs(dist)))
-        #)
-        #collision_gain = model.aux["collision_gain"]
+        if collision_gain_type == 1:
+            model.set_expression(
+                expr_name="collision_gain_1", expr=casadi.tanh(50 * casadi.fmax(0, 20 - casadi.fabs(dist)))
+            )
+            collision_gain = model.aux["collision_gain_1"]
+            
+        elif collision_gain_type == 2:
+            model.set_expression(
+                expr_name="collision_gain_2", expr= (x_foot-r0_x)/(self.X_MAX-x_foot)
+            )
+            collision_gain = model.aux["collision_gain_2"]
         
-        model.set_expression(
-            expr_name="collision_gain", expr= (x_foot-r0_x)/(640-x_foot)
-        )
-        collision_gain = model.aux["collision_gain"]
+        elif collision_gain_type == 3:
+            model.set_expression(
+                expr_name="collision_gain_3", expr=( 1 / ((1/10)*casadi.fabs(x_foot - r0_x) - 1.1)**100 + 1 )
+            )
+            collision_gain = model.aux["collision_gain_3"]
         
-        ### Alternative expression ###
-        #model.set_expression(
-        #    expr_name="collision_gain", expr=( 1 / ((1/10)*casadi.fabs(x_foot - r0_x) - 1.1)**100 + 1 )
-        #)
-        #collision_gain = model.aux["collision_gain"]
+        print("Collision Gain Equation (Type "+str(collision_gain_type)+"): ", collision_gain, "\n")
         
-        print("Collision gain", collision_gain)
         model.set_rhs("theta", theta + omega * self.dt)
-        model.set_rhs("x_foot", self.X_ROD + self.L*casadi.sin(theta)) # -theta_foot ???
+        model.set_rhs("x_foot", self.X_ROD + self.L_P*casadi.sin(theta)) 
+        #z_foot = ???
         
         model.set_rhs("r0_x", r0_x + r1_x * self.dt)
         model.set_rhs("r0_y", r0_y + r1_y * self.dt)
-        model.set_rhs("r1_x", (1-collision_gain)*r1_x + (collision_gain)*2000) # 500 pix/sec clears field in ~500/640 second 
+        model.set_rhs("r1_x", (1-collision_gain)*r1_x + (collision_gain)*2000)
         model.set_rhs("r1_y", r1_y) 
 
         model.set_expression(
-            expr_name="lagrange_term", expr=input_weight * omega**2 + goal_error_weight * (collision_gain)**2 + resting_weight * (casadi.fmax(0, casadi.fabs(theta - ((15/8)*casadi.pi)) - 0.04))**2 # dead-zone / dead-band
+            expr_name="lagrange_term", expr=input_weight * omega**2 + goal_error_weight * (collision_gain)**2 + resting_weight * (casadi.fmax(0, casadi.fabs(theta - (-(15/8)*casadi.pi)) - 0.04))**2 # dead-zone / dead-band
         )
         model.set_expression(
-            expr_name="meyer_term", expr= casadi.SX(0) + position_error_weight * (dist) ** 2# + goal_error_weight * (r0_x - 640)**2
+            expr_name="meyer_term", expr= casadi.SX(0) + position_error_weight * (dist) ** 2 # + goal_error_weight * (r0_x - 640)**2
         )
         
+        print("Solver Status")
+        print("-----------------------------")
         model.setup()
         print("Model defined!")
         
@@ -168,13 +199,13 @@ class MPC_Solver:
         self.mpc.bounds["lower", "_u", "omega"] = -omega_max # in rad/sec
         self.mpc.bounds["upper", "_u", "omega"] = omega_max # in rad/sec
         
-        self.mpc.bounds["lower", "_x", "theta"] = -2*casadi.pi # bounds should match the calculations by the encoder
+        self.mpc.bounds["lower", "_x", "theta"] = -2*casadi.pi # bounds should match the encoder calculations
         self.mpc.bounds["upper", "_x", "theta"] = 2*casadi.pi
         
-        self.mpc.bounds["lower", "_x", "r0_x"] = 0 # CONVERT TO METERS (USE GLOBAL VARIABLES) 
-        self.mpc.bounds["upper", "_x", "r0_x"] = 640 # CONVERT TO METERS (USE GLOBAL VARIABLES) 
-        self.mpc.bounds["lower", "_x", "r0_y"] = 0 # CONVERT TO METERS (USE GLOBAL VARIABLES) 
-        self.mpc.bounds["upper", "_x", "r0_y"] = 360 # CONVERT TO METERS (USE GLOBAL VARIABLES) 
+        self.mpc.bounds["lower", "_x", "r0_x"] = self.X_MIN 
+        self.mpc.bounds["upper", "_x", "r0_x"] = self.X_MAX 
+        self.mpc.bounds["lower", "_x", "r0_y"] = self.Y_MIN 
+        self.mpc.bounds["upper", "_x", "r0_y"] = self.Y_MAX
         
         suppress_ipopt = {
             'ipopt.print_level': 0,
@@ -200,7 +231,7 @@ class MPC_Solver:
             if self.rad_flag == True:
              
                 theta = self.motor2_rad
-                x_foot = self.X_ROD + self.L*math.sin(theta)
+                x_foot = self.X_ROD + self.L_P*math.sin(theta)
                 
                 # MAKE SURE TO UPDATE THESE VARIABLES IN THE BALL DETECTION PIPELINE AND CONVERT TO METRIC
                 r0_x = float(self.ball_pos.linear.x)
@@ -208,7 +239,7 @@ class MPC_Solver:
                 r1_x = float(self.ball_pos.angular.x) # zero for testing
                 r1_y = float(self.ball_pos.angular.y)
                
-                print(theta)
+                #print(theta)
                 
                 # Remember to pass proper parameters!!!
                 u_opt = self.mpc.make_step(
@@ -217,7 +248,7 @@ class MPC_Solver:
                 
                 #print(u_opt.shape)
                 self.rod_angular_vel = u_opt[0][0]
-                self.omega_cmd.linear.y = self.rod_angular_vel # already in radians
+                self.omega_cmd.angular.x = self.rod_angular_vel # already in radians
                 self.cmd_pub.publish(self.omega_cmd)
 
             self.rate.sleep() # QUESTION: The loop is running at 200 HZ but the solver is calculating based on a 1/60 dt. Does this cause problems?
