@@ -1,0 +1,61 @@
+<launch>
+
+  <!-- ========================= -->
+  <!-- Define Machines -->
+  <!-- ========================= -->
+
+  <!-- Master (Alienware) -->
+  <machine name="master"
+           address="localhost"
+           user="foobot"
+           default="true" />
+
+  <!-- Slave (Raspberry Pi) -->
+  <!-- Use your SSH alias from ~/.ssh/config -->
+  <machine name="pi"
+           address="FooBot"   <!-- this comes from ~/.ssh/config -->
+           user="FooBot"
+           env-loader="/home/pi/catkin_ws/devel/env.sh" />
+
+
+
+  <!-- ========================= -->
+  <!-- Nodes on MASTER -->
+  <!-- ========================= -->
+
+  <node pkg="rqt_plot"
+        type="rqt_plot"
+        name="rqt_plot"
+        args="/rod2_player_positions/data[0] /omega_d/angular/x"
+        output="screen" />
+
+
+
+  <!-- ========================= -->
+  <!-- Nodes on SLAVE (Pi) -->
+  <!-- ========================= -->
+
+  <node pkg="pi_codes"
+        type="spawn_rod.py"
+        name="rod_node"
+        args="--rod=1"
+        machine="pi"
+        output="screen" />
+  
+        
+  <!-- Publish nonzero for 5 seconds -->
+  <node pkg="rostopic"
+        type="rostopic"
+        name="cmd_vel_start"
+        args="pub /omega_d geometry_msgs/Twist '{angular: {x: 5.0}}' -r 10"
+        output="screen" />
+
+  <!-- Then publish zero once -->
+  <node pkg="rostopic"
+        type="rostopic"
+        name="cmd_vel_stop"
+        args="pub -1 /omega_d geometry_msgs/Twist '{angular: {x: 0.0}}'"
+        launch-prefix="bash -c 'sleep 5; $0 $@'"
+        output="screen" />
+
+</launch>

@@ -44,7 +44,7 @@ class MPC_Solver:
         rospy.init_node('mpc_y_solver', anonymous=True)
 
         rospy.Subscriber("/ball_pos", Twist, self.ball_callback, queue_size=10)
-        rospy.Subscriber("/rod1_player_positions", Float64MfrultiArray, self.player_callback, queue_size=10)
+        rospy.Subscriber("/rod1_player_positions", Float64MultiArray, self.player_callback, queue_size=10)
         
         self.cmd_pub = rospy.Publisher('/omega_d', Twist, queue_size=10)
 

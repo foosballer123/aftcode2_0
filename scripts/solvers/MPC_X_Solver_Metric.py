@@ -47,9 +47,10 @@ class MPC_Solver:
         rospy.Subscriber("/rod2_player_positions", Float64MultiArray, self.angular_callback, queue_size=10)
         self.cmd_pub = rospy.Publisher('/omega_d', Twist, queue_size=10)
         
-        self.rate = rospy.Rate(200)
+        self.rate = rospy.Rate(60)
        
         self.dt = rospy.get_param('/x_solver_parameters/timestep')  # should match the refresh rate of the camera
+        self.k = 1 # was 20, with the current setup a high k dampens the importance of a higher omega value
         
         self.ball_flag = False
         self.rad_flag = False
@@ -76,8 +77,9 @@ class MPC_Solver:
         self.X_ROD = rospy.get_param('/table_measurements/blue_rod_positions/rod_one')
         
         self.L_P = rospy.get_param('/table_measurements/player_length')
-        self.R_F = rospy.get_param('/table_measurements/approximate_player_foot_diameter')
-        self.R_B = rospy.get_param('/table_measurements/ball_diameter')
+        self.H_P = rospy.get_param('/table_measurements/player_height')
+        self.R_F = rospy.get_param('/table_measurements/approximate_player_foot_diameter') / 2
+        self.R_B = rospy.get_param('/table_measurements/ball_diameter') / 2
         
         self.steps_per_revolution = rospy.get_param('/table_measurements/steps_per_revolution')
         self.meters_per_step = self.Y / rospy.get_param('/table_measurements/steps_across_field')  
@@ -125,28 +127,51 @@ class MPC_Solver:
         print("Collision Gain Type:", collision_gain_type)
         
         model = do_mpc.model.Model('discrete')
-
-        # for modeling the controlled variable
-        theta = model.set_variable(var_type='_x', var_name='theta', shape=(1, 1))
-        x_foot = model.set_variable(var_type='_x', var_name='x_foot', shape=(1, 1)) 
-        #z_foot = ???
         
-        # make the ball a state variable 
-        r0_x = model.set_variable(var_type='_x', var_name='r0_x', shape=(1, 1))
-        r0_y = model.set_variable(var_type='_x', var_name='r0_y', shape=(1, 1))
-        r1_x = model.set_variable(var_type='_x', var_name='r1_x', shape=(1, 1))
-        r1_y = model.set_variable(var_type='_x', var_name='r1_y', shape=(1, 1))
-        
+        # input variable
         omega = model.set_variable(var_type='_u', var_name='omega')
         
+        # for modeling the controlled variable
+        theta = model.set_variable(var_type='_x', var_name='theta', shape=(1, 1))
+        #x_foot = model.set_variable(var_type='_x', var_name='x_foot', shape=(1, 1)) # Does x_foot need to be a state variable if it is always based on theta?
+        #z_foot = model.set_variable(var_type='_x', var_name='z_foot', shape=(1, 1))
+        
+        # make the ball a state variable (state variables use discrete time format x_n+1 = f(theta_n) )
+        r0_x = model.set_variable(var_type='_x', var_name='r0_x', shape=(1, 1))
+        r0_y = model.set_variable(var_type='_x', var_name='r0_y', shape=(1, 1))
+        #r0_z = model.set_variable(var_type='_x', var_name='r0_z', shape=(1, 1)) 
+        r1_x = model.set_variable(var_type='_x', var_name='r1_x', shape=(1, 1))
+        r1_y = model.set_variable(var_type='_x', var_name='r1_y', shape=(1, 1))
+        # no r1_Z
+        
+        model.set_rhs("theta", theta + omega * self.dt)
+        #model.set_rhs("x_foot", self.X_ROD + self.L_P*casadi.sin(theta))
+        #model.set_rhs("z_foot", self.L_P*cos(theta)) # with the torso of the player at z = 0
+        
+        # auxiliary variables are an algebraic projection of the current state ( x_n = f(theta_n) )
         model.set_expression(
-            expr_name="dist", expr=(x_foot - r0_x)
+            expr_name="x_foot", expr= self.X_ROD + self.L_P*casadi.sin(theta)
+        )
+        x_foot = model.aux["x_foot"]
+        
+        model.set_expression(
+            expr_name="z_foot", expr= self.L_P*casadi.cos(theta)
+        )
+        z_foot = model.aux["z_foot"]
+        
+        model.set_expression(
+            expr_name="r0_z", expr=casadi.SX(self.H_P - self.R_B)
+        )
+        r0_z = model.aux["r0_z"]
+        
+        model.set_expression(
+            expr_name="dist", expr= casadi.sqrt( (x_foot - r0_x)**2 + (z_foot - r0_z)**2 )
         )
         dist = model.aux["dist"]
         
         if collision_gain_type == 1:
             model.set_expression(
-                expr_name="collision_gain_1", expr=casadi.tanh(50 * casadi.fmax(0, 20 - casadi.fabs(dist)))
+                expr_name="collision_gain_1", expr=casadi.tanh(200 * casadi.fmax(0, (self.R_F + self.R_B) - casadi.fabs(dist)))
             )
             collision_gain = model.aux["collision_gain_1"]
             
@@ -158,26 +183,25 @@ class MPC_Solver:
         
         elif collision_gain_type == 3:
             model.set_expression(
-                expr_name="collision_gain_3", expr=( 1 / ((1/10)*casadi.fabs(x_foot - r0_x) - 1.1)**100 + 1 )
+                expr_name="collision_gain_3", expr=( 1 / ((1/10)*casadi.fabs(x_foot - r0_x))**100 + 1 )
             )
             collision_gain = model.aux["collision_gain_3"]
         
         print("Collision Gain Equation (Type "+str(collision_gain_type)+"): ", collision_gain, "\n")
         
-        model.set_rhs("theta", theta + omega * self.dt)
-        model.set_rhs("x_foot", self.X_ROD + self.L_P*casadi.sin(theta)) 
-        #z_foot = ???
-        
         model.set_rhs("r0_x", r0_x + r1_x * self.dt)
         model.set_rhs("r0_y", r0_y + r1_y * self.dt)
-        model.set_rhs("r1_x", (1-collision_gain)*r1_x + (collision_gain)*2000)
+        #model.set_rhs("r0_z", casadi.SX(self.H_P - self.R_B)) # constant
+        model.set_rhs("r1_x", (1-collision_gain)*r1_x + (collision_gain) * self.k * omega)
         model.set_rhs("r1_y", r1_y) 
-
+		
         model.set_expression(
-            expr_name="lagrange_term", expr=input_weight * omega**2 + goal_error_weight * (collision_gain)**2 + resting_weight * (casadi.fmax(0, casadi.fabs(theta - (-(15/8)*casadi.pi)) - 0.04))**2 # dead-zone / dead-band
+            expr_name="lagrange_term", expr=input_weight * omega**2 + resting_weight * (casadi.fmax(0, casadi.fabs(theta - ((15/8)*casadi.pi)) - 0.04))**2 + goal_error_weight * (r0_x - self.X_MAX)**2
+            # the resting term includes dead-zone / dead-band
         )
         model.set_expression(
-            expr_name="meyer_term", expr= casadi.SX(0) + position_error_weight * (dist) ** 2 # + goal_error_weight * (r0_x - 640)**2
+            expr_name="meyer_term", expr=resting_weight * (casadi.fmax(0, casadi.fabs(theta - ((15/8)*casadi.pi)) - 0.04))**2 + goal_error_weight * (r0_x - self.X_MAX)**2
+            # extra terms: goal_error_weight * (r0_x - self.X_MAX)**2, position_error_weight * (dist) ** 2 
         )
         
         print("Solver Status")
@@ -217,7 +241,7 @@ class MPC_Solver:
         self.mpc.setup()
         print("MPC solver defined!")
 
-        self.mpc.x0 = np.array([0, 0, 0, 0, 0, 0])
+        self.mpc.x0 = np.array([0, 0, 0, 0, 0])
         self.mpc.set_initial_guess()
         print("Initial state variables:", model.x.labels())
         print("Initial input variables:", model.u.labels())
@@ -231,7 +255,6 @@ class MPC_Solver:
             if self.rad_flag == True:
              
                 theta = self.motor2_rad
-                x_foot = self.X_ROD + self.L_P*math.sin(theta)
                 
                 # MAKE SURE TO UPDATE THESE VARIABLES IN THE BALL DETECTION PIPELINE AND CONVERT TO METRIC
                 r0_x = float(self.ball_pos.linear.x)
@@ -243,7 +266,7 @@ class MPC_Solver:
                 
                 # Remember to pass proper parameters!!!
                 u_opt = self.mpc.make_step(
-                    np.array([theta, x_foot, r0_x, r0_y, r1_x, r1_y])
+                    np.array([theta, r0_x, r0_y, r1_x, r1_y])
                 )
                 
                 #print(u_opt.shape)
