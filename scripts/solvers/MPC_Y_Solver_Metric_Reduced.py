@@ -54,11 +54,10 @@ class MPC_Solver:
         self.ball_flag = False
         self.ball_pos = Twist()
         self.motor1_pos = Float64MultiArray()
-        #self.motor2_pos = 0
-        
+  
         self.omega_cmd = Twist()
         self.rod_vel = 0
-        #self.rod_angular_vel = 0
+      
         
         self.P_D = rospy.get_param('/table_measurements/distance_between_players') # distance between the players along the rod (even zones)
         self.Z_D = rospy.get_param('/table_measurements/distance_to_clear_zone')
@@ -68,16 +67,7 @@ class MPC_Solver:
         self.Y = rospy.get_param('/table_measurements/field_height')
         self.Y_MAX = self.Y
         self.Y_MIN = 0
-        
-        self.X = rospy.get_param('/table_measurements/field_width')
-        self.X_MAX = self.X
-        self.X_MIN = 0
-        self.X_ROD = rospy.get_param('/table_measurements/blue_rod_positions/rod_one')
-        
-        #self.L_P = 50
-        #self.R_F = 5
-        #self.R_B = 15
-        
+         
         self.steps_per_revolution = rospy.get_param('/table_measurements/steps_per_revolution')
         self.meters_per_step = self.Y / rospy.get_param('/table_measurements/steps_across_field')  
         self.radians_per_meter = math.pow(self.meters_per_step, -1) * (2*math.pi / self.steps_per_revolution)	
@@ -94,12 +84,7 @@ class MPC_Solver:
         
     def player_callback(self, msg):
         self.motor1_pos = msg.data # in meters!
-              
-    #def angular_callback(self, msg):
-    #    offset = math.pi*0.3
-    #    rad = msg.data*((2*math.pi)/400) + offset # steps * rad/step = rad
-    #    self.motor2_pos = rad #int(self.X_ROD + self.L*math.sin(-rad))
-                
+                      
     def init_mpc(self):
 
         input_weight = rospy.get_param('/y_solver_parameters/cost_function/input_weight')
@@ -124,9 +109,7 @@ class MPC_Solver:
         y3 = model.set_variable(var_type='_x', var_name='y3', shape=(1, 1))
      
         # make the ball a state variable 
-        r0_x = model.set_variable(var_type='_x', var_name='r0_x', shape=(1, 1))
         r0_y = model.set_variable(var_type='_x', var_name='r0_y', shape=(1, 1))
-        r1_x = model.set_variable(var_type='_x', var_name='r1_x', shape=(1, 1))
         r1_y = model.set_variable(var_type='_x', var_name='r1_y', shape=(1, 1))
         
         y_vel = model.set_variable(var_type='_u', var_name='y_vel')
@@ -150,9 +133,7 @@ class MPC_Solver:
         model.set_rhs("y2", y2 + y_vel * self.dt)
         model.set_rhs("y3", y3 + y_vel * self.dt)
 
-        model.set_rhs("r0_x", r0_x + r1_x * self.dt)
         model.set_rhs("r0_y", r0_y + r1_y * self.dt)
-        model.set_rhs("r1_x", r1_x) 
         model.set_rhs("r1_y", r1_y) 
 
         model.set_expression(
@@ -185,8 +166,6 @@ class MPC_Solver:
         self.mpc.bounds["lower", "_x", "y3"] = self.Y_MAX - (self.W_D + self.Z_D) 
         self.mpc.bounds["upper", "_x", "y3"] = self.Y_MAX - self.W_D + self.zone_padding
         
-        self.mpc.bounds["lower", "_x", "r0_x"] = self.X_MIN 
-        self.mpc.bounds["upper", "_x", "r0_x"] = self.X_MAX 
         self.mpc.bounds["lower", "_x", "r0_y"] = self.Y_MIN 
         self.mpc.bounds["upper", "_x", "r0_y"] = self.Y_MAX 
         
@@ -200,7 +179,7 @@ class MPC_Solver:
         self.mpc.setup()
         print("MPC solver defined!")
 
-        self.mpc.x0 = np.array([0, 0, 0, 0, 0, 0, 0])
+        self.mpc.x0 = np.array([0, 0, 0, 0, 0,])
         self.mpc.set_initial_guess()
         print("Initial state variables:", model.x.labels())
         print("Initial input variables:", model.u.labels())
@@ -218,14 +197,12 @@ class MPC_Solver:
                 y3 = self.motor1_pos[2]
                 
                 # MAKE SURE TO UPDATE THESE VARIABLES IN THE BALL DETECTION PIPELINE AND CONVERT TO METRIC
-                r0_x = float(self.ball_pos.linear.x)
                 r0_y = float(self.ball_pos.linear.y)
-                r1_x = 0 #float(self.ball_pos.angular.x)
                 r1_y = 0 #float(self.ball_pos.angular.y)
                
                 # Remember to pass proper parameters!!!
                 u_opt = self.mpc.make_step(
-                    np.array([y1, y2, y3, r0_x, r0_y, r1_x, r1_y])
+                    np.array([y1, y2, y3, r0_y, r1_y])
                 )
                 
                 #print(u_opt.shape)

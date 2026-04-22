@@ -100,7 +100,7 @@ if __name__ == '__main__':
     img_sub = rospy.Subscriber("/pylon_camera_node/image_rect", Image, get_image)
     img_pub = rospy.Publisher('/computer_vision_mono8', Image, queue_size = 1)
     mask_pub = rospy.Publisher('/computer_vision_mono8_mask', Image, queue_size = 1)
-    pos_pub = rospy.Publisher('/ball_pos', Twist, queue_size = 10) 
+    pos_pub = rospy.Publisher('/ball_pos_raw', Twist, queue_size = 10) 
     
     field_height = rospy.get_param('/table_measurements/field_height')
     field_width = rospy.get_param('/table_measurements/field_width')

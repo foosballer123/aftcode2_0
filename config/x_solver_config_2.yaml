@@ -1,0 +1,25 @@
+# Config file for aftcode2_0 created by Benjamin Simpson on 3/19/2026 for Capstone II in Spring 2026
+
+# This file will contain parameters for MPC_Y_Solver.py, MPC_X_Solver.py, computer_vision.py, and, if time permits, the velocity control codes found on the raspberry pi.
+
+# Credit to Aashish Kumar for writing a Medium article explaining how to create config files:
+# https://medium.com/the-pythonworld/how-to-write-and-use-configuration-files-in-python-like-a-pro-8465126ca055
+
+# Important Note: The current solver scripts rely on arguments being passed through terminal for config.
+#  to get around this, add a 'flag' in 'config.yaml' that signals to the solver if it should take terminal inputs #  or read from the config. file.
+
+# X Solver parameters
+x_solver_parameters:
+  timestep: 0.0166667 # seconds
+  k_value: 1
+  max_input: 31 # radians/sec
+  prediction_steps: 20 # was 6
+  input_rate_weight: 0.0 # was 0.2
+  cost_function:
+    input_weight: 0.0 # was 0.2
+    resting_weight: 0
+    position_error_weight: 0
+    velocity_error_weight: 0
+    goal_error_weight: 200 # was 50
+  collision_gain_type: 1  
+      

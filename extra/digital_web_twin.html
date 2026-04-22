@@ -1,0 +1,1912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Foosball Digital Twin v4</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/roslib@1.4.1/build/roslib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap');
+  :root {
+    --bg0:#0a0e17; --bg1:#111827; --bg2:#1a2235; --bg3:#1e293b; --bdr:#2d3a4f;
+    --t1:#e2e8f0; --t2:#94a3b8; --t3:#64748b;
+    --cyan:#22d3ee; --orange:#f97316; --red:#ef4444; --blue:#3b82f6;
+    --purple:#a78bfa; --yellow:#facc15; --lime:#84cc16; --green:#22c55e;
+    --pink:#f472b6;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Outfit',sans-serif; background:var(--bg0); color:var(--t1); overflow:hidden; height:100vh; }
+
+  /* Layout: viewport left (spans 2 rows), sidebar right (spans 2 rows), timeline below viewport */
+  .app { display:grid; grid-template-columns:1fr 400px; grid-template-rows:52px 1fr 64px;
+         grid-template-areas: "header header" "viewport sidebar" "timeline sidebar";
+         height:100vh; gap:1px; background:var(--bdr); }
+
+  .header { grid-area:header; background:var(--bg1); display:flex; align-items:center; justify-content:space-between; padding:0 16px; }
+  .header-left { display:flex; align-items:center; gap:14px; }
+  .logo { font-family:'JetBrains Mono',monospace; font-weight:600; font-size:14px; letter-spacing:1.5px; text-transform:uppercase; color:var(--cyan); }
+  .logo span { color:var(--t3); font-weight:300; }
+  .conn-group { display:flex; align-items:center; gap:8px; }
+  .ros-url { font-family:'JetBrains Mono',monospace; font-size:11px; background:var(--bg3); border:1px solid var(--bdr); color:var(--t1); padding:5px 10px; border-radius:5px; width:220px; outline:none; }
+  .ros-url:focus { border-color:var(--cyan); }
+  .btn { font-family:'Outfit',sans-serif; font-size:11px; font-weight:500; padding:5px 14px; border-radius:5px; border:1px solid var(--bdr); cursor:pointer; transition:all .15s; }
+  .btn-conn { background:var(--cyan); color:var(--bg0); border-color:var(--cyan); }
+  .btn-conn:hover { filter:brightness(1.15); }
+  .btn-disc { background:transparent; color:var(--red); border-color:var(--red); }
+  .status-pill { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:500; padding:3px 10px; border-radius:16px; background:var(--bg3); border:1px solid var(--bdr); }
+  .status-dot { width:7px; height:7px; border-radius:50%; background:var(--red); transition:background .3s; }
+  .status-dot.on { background:var(--green); box-shadow:0 0 6px var(--green); }
+
+  .header-right { display:flex; align-items:center; gap:6px; }
+  .hbtn { font-family:'JetBrains Mono',monospace; font-size:10px; background:var(--bg3); color:var(--t2); border:1px solid var(--bdr); padding:4px 9px; border-radius:4px; cursor:pointer; transition:all .15s; white-space:nowrap; }
+  .hbtn:hover,.hbtn.a { background:var(--cyan); color:var(--bg0); border-color:var(--cyan); }
+  .hbtn.tog-on { background:var(--orange); color:var(--bg0); border-color:var(--orange); }
+  .hbtn.tog-red { background:var(--red); color:#fff; border-color:var(--red); }
+  .hbtn.tog-pink { background:var(--pink); color:var(--bg0); border-color:var(--pink); }
+  .sep { width:1px; height:20px; background:var(--bdr); }
+
+  .cfg-label { font-family:'JetBrains Mono',monospace; font-size:10px; background:var(--bg3); color:var(--lime); border:1px solid var(--lime); padding:4px 9px; border-radius:4px; cursor:pointer; transition:all .15s; display:inline-block; }
+  .cfg-label:hover { background:var(--lime); color:var(--bg0); }
+  .cfg-label.loading { color:var(--yellow); border-color:var(--yellow); }
+  .cfg-label.done { color:var(--green); border-color:var(--green); }
+  #loadInput { display:none; }
+
+  .viewport { grid-area:viewport; background:var(--bg0); position:relative; overflow:hidden; }
+  .viewport canvas { display:block; }
+  .overlay-bar { position:absolute; bottom:10px; left:10px; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 20px); }
+  .otag { font-family:'JetBrains Mono',monospace; font-size:9px; padding:2px 7px; border-radius:3px; background:rgba(17,24,39,.85); border:1px solid var(--bdr); backdrop-filter:blur(4px); }
+  .otag .ol { color:var(--t3); }
+  .otag .ov { color:var(--cyan); margin-left:3px; }
+  .otag.replay { border-color:var(--pink); }
+  .otag.replay .ov { color:var(--pink); }
+
+  .gain-ol { position:absolute; top:10px; left:10px; width:300px; height:150px; padding:8px 10px; background:rgba(17,24,39,.9); border:1px solid var(--red); border-radius:6px; backdrop-filter:blur(6px); display:none; }
+  .gain-ol.vis { display:block; }
+  .gain-ol-hdr { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--red); letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; }
+  .gain-ol-hdr select { font-family:'JetBrains Mono',monospace; font-size:9px; background:var(--bg3); color:var(--t1); border:1px solid var(--bdr); border-radius:3px; padding:1px 3px; outline:none; }
+  .gain-ol canvas { width:100%!important; height:105px!important; }
+
+  .meta-panel { position:absolute; top:10px; right:10px; width:280px; padding:8px 10px; background:rgba(17,24,39,.92); border:1px solid var(--pink); border-radius:6px; backdrop-filter:blur(6px); display:none; }
+  .meta-panel.vis { display:block; }
+  .meta-hdr { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--pink); letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; }
+  .meta-hdr button { font-family:'JetBrains Mono',monospace; font-size:9px; background:transparent; color:var(--t3); border:1px solid var(--bdr); border-radius:3px; padding:1px 5px; cursor:pointer; }
+  .meta-row { font-family:'JetBrains Mono',monospace; font-size:9px; display:flex; justify-content:space-between; padding:1px 0; }
+  .meta-row .ml { color:var(--t3); } .meta-row .mv { color:var(--t1); }
+
+  /* Horizon Style panel — tunable ghost opacity/color */
+  .style-panel { position:absolute; top:10px; right:300px; width:300px; padding:10px 12px; background:rgba(17,24,39,.94); border:1px solid var(--pink); border-radius:6px; backdrop-filter:blur(6px); display:none; }
+  .style-panel.vis { display:block; }
+  .style-hdr { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--pink); letter-spacing:1px; text-transform:uppercase; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; }
+  .style-hdr button { font-family:'JetBrains Mono',monospace; font-size:10px; background:transparent; color:var(--t3); border:1px solid var(--bdr); border-radius:3px; padding:1px 6px; cursor:pointer; }
+  .style-row { display:flex; align-items:center; gap:6px; margin-top:6px; }
+  .style-label { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--t2); min-width:64px; }
+  .style-val { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--pink); min-width:32px; text-align:right; }
+  .style-hint { font-family:'Outfit',sans-serif; font-size:9px; color:var(--t3); font-style:italic; margin:2px 0 2px 70px; }
+  .style-divider { height:1px; background:var(--bdr); margin:8px 0; }
+  .style-section { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--t3); letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
+  .style-panel input[type="range"] { flex:1; -webkit-appearance:none; appearance:none; height:4px; background:var(--bg3); border-radius:2px; outline:none; }
+  .style-panel input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--pink); cursor:pointer; border:1px solid var(--bg0); }
+  .style-panel input[type="range"]::-moz-range-thumb { width:12px; height:12px; border-radius:50%; background:var(--pink); cursor:pointer; border:1px solid var(--bg0); }
+  .style-panel input[type="color"] { width:28px; height:20px; border:1px solid var(--bdr); border-radius:3px; background:transparent; cursor:pointer; padding:0; }
+  .style-reset { font-family:'JetBrains Mono',monospace; font-size:9px; background:var(--bg3); color:var(--t2); border:1px solid var(--bdr); padding:4px 10px; border-radius:4px; cursor:pointer; width:100%; }
+  .style-reset:hover { border-color:var(--pink); color:var(--pink); }
+
+  .timeline { grid-area:timeline; background:var(--bg1); display:flex; align-items:center; gap:12px; padding:0 16px; }
+  .tl-mode { display:flex; align-items:center; gap:4px; }
+  .tl-btn { font-family:'JetBrains Mono',monospace; font-size:10px; background:var(--bg3); color:var(--t2); border:1px solid var(--bdr); padding:5px 10px; border-radius:4px; cursor:pointer; transition:all .15s; }
+  .tl-btn.live { background:var(--green); color:var(--bg0); border-color:var(--green); }
+  .tl-btn.replay { background:var(--pink); color:var(--bg0); border-color:var(--pink); }
+  .rec-btn { display:inline-flex; align-items:center; gap:5px; font-family:'JetBrains Mono',monospace; font-size:10px;
+              padding:5px 10px; border-radius:4px; background:var(--bg3); border:1px solid var(--bdr); color:var(--t2);
+              cursor:pointer; transition:all .15s; }
+  .rec-btn:hover { border-color:var(--red); color:var(--red); }
+  .rec-btn.on { background:rgba(239,68,68,.15); border-color:var(--red); color:var(--red); }
+  .rec-btn.on:hover { background:rgba(239,68,68,.25); }
+  .rec-btn:disabled { opacity:0.4; cursor:not-allowed; }
+  .rec-dot { width:7px; height:7px; border-radius:50%; background:var(--t3); }
+  .rec-btn.on .rec-dot { background:var(--red); box-shadow:0 0 6px var(--red); animation:recpulse 1.5s ease-in-out infinite; }
+  @keyframes recpulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+  .tl-slider-wrap { flex:1; display:flex; align-items:center; gap:8px; }
+  .tl-slider { flex:1; -webkit-appearance:none; appearance:none; height:6px; background:var(--bg3); border-radius:3px; outline:none; cursor:pointer; }
+  .tl-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:14px; height:14px; border-radius:50%; background:var(--pink); cursor:pointer; border:2px solid var(--bg0); }
+  .tl-slider::-moz-range-thumb { width:14px; height:14px; border-radius:50%; background:var(--pink); cursor:pointer; border:2px solid var(--bg0); }
+  .tl-label { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--t2); white-space:nowrap; min-width:140px; text-align:right; }
+  .tl-info { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--t3); white-space:nowrap; }
+  .tl-btn-sm { font-family:'JetBrains Mono',monospace; font-size:10px; background:var(--bg3); color:var(--t2); border:1px solid var(--bdr); padding:4px 8px; border-radius:4px; cursor:pointer; }
+  .tl-btn-sm:hover { background:var(--bdr); color:var(--t1); }
+  .tl-btn-sm.active { background:var(--cyan); color:var(--bg0); border-color:var(--cyan); }
+  .tl-speed { font-family:'JetBrains Mono',monospace; font-size:10px; background:var(--bg3); color:var(--t1); border:1px solid var(--bdr); border-radius:4px; padding:3px 4px; outline:none; cursor:pointer; }
+
+  .sidebar { grid-area:sidebar; background:var(--bg1); overflow-y:auto; display:flex; flex-direction:column; gap:1px; }
+  .sidebar::-webkit-scrollbar { width:4px; }
+  .sidebar::-webkit-scrollbar-track { background:transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background:var(--bdr); border-radius:2px; }
+
+  .pn { background:var(--bg2); padding:12px 14px; }
+  .pt { font-family:'JetBrains Mono',monospace; font-size:9px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--t3); margin-bottom:8px; display:flex; align-items:center; gap:5px; }
+  .pt::before { content:''; display:block; width:3px; height:11px; border-radius:1px; }
+  .pt.c-cyan::before{background:var(--cyan)} .pt.c-orange::before{background:var(--orange)}
+  .pt.c-blue::before{background:var(--blue)} .pt.c-purple::before{background:var(--purple)}
+  .pt.c-red::before{background:var(--red)} .pt.c-yellow::before{background:var(--yellow)}
+  .pt.c-lime::before{background:var(--lime)} .pt.c-pink::before{background:var(--pink)}
+
+  .row { display:flex; justify-content:space-between; align-items:center; padding:2px 0; font-size:11px; }
+  .row-label { color:var(--t2); }
+  .row-val { font-family:'JetBrains Mono',monospace; font-size:11px; }
+
+  .src-tag { font-family:'JetBrains Mono',monospace; font-size:7px; padding:1px 3px; border-radius:2px; margin-left:3px; vertical-align:middle; display:inline-block; }
+  .src-tag.ros { background:rgba(34,197,94,.2); color:var(--green); }
+  .src-tag.local { background:rgba(148,163,184,.15); color:var(--t3); }
+  .src-tag.hist { background:rgba(244,114,182,.2); color:var(--pink); }
+
+  .chart-box { height:100px; margin-top:4px; position:relative; }
+  .chart-box-sm { height:75px; margin-top:4px; position:relative; }
+
+  .player-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:3px; }
+  .player-card { background:var(--bg3); border:1px solid var(--bdr); border-radius:5px; padding:6px; text-align:center; }
+  .player-card .idx { font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--t3); margin-bottom:3px; }
+  .player-card .val { font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:500; color:var(--blue); }
+
+  .topic-list { display:flex; flex-direction:column; gap:3px; margin-top:3px; }
+  .topic-item { display:flex; align-items:center; gap:5px; font-family:'JetBrains Mono',monospace; font-size:9px; padding:3px 7px; background:var(--bg3); border-radius:3px; border:1px solid var(--bdr); }
+  .topic-dot { width:5px; height:5px; border-radius:50%; background:var(--t3); flex-shrink:0; }
+  .topic-dot.live { background:var(--green); box-shadow:0 0 4px var(--green); }
+  .topic-name { color:var(--t2); flex:1; overflow:hidden; text-overflow:ellipsis; }
+  .topic-hz { color:var(--t3); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">DIGITAL TWIN <span>// foosball v4</span></div>
+      <div class="conn-group">
+        <input class="ros-url" id="rosUrl" type="text" value="ws://localhost:9090"/>
+        <button class="btn btn-conn" id="connectBtn" onclick="toggleConn()">Connect</button>
+        <div class="status-pill"><div class="status-dot" id="sDot"></div><span id="sTxt">Disconnected</span></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="cfg-label" id="reloadBtn" onclick="reloadParams()">Reload Params</button>
+      <button class="cfg-label" id="saveBtn" onclick="saveHistory()">Save History</button>
+      <label class="cfg-label" for="loadInput">Load JSON</label>
+      <input type="file" id="loadInput" accept=".json" onchange="loadHistoryFile(this)"/>
+      <div class="sep"></div>
+      <button class="hbtn a" onclick="setCam(this,'p')">3D</button>
+      <button class="hbtn" onclick="setCam(this,'t')">Top</button>
+      <button class="hbtn" onclick="setCam(this,'s')">Side</button>
+      <button class="hbtn" onclick="setCam(this,'f')">Front</button>
+      <div class="sep"></div>
+      <button class="hbtn" id="dvBtn" onclick="togDistVec()">Dist Vec</button>
+      <button class="hbtn" id="velBtn" onclick="togVelVec()">Vel Arrows</button>
+      <button class="hbtn tog-pink" id="horBtn" onclick="togHorizon()">Horizon</button>
+      <button class="hbtn" id="horStyleBtn" onclick="togHorStyle()" title="Tune ghost opacity falloff and colors">Style</button>
+      <button class="hbtn" id="horLabelsBtn" onclick="togHorLabels()" title="Show prediction horizon step numbers">Labels</button>
+      <button class="hbtn" id="goBtn" onclick="togGainOL()">Gain OL</button>
+      <button class="hbtn" id="metaBtn" onclick="togMeta()">Metadata</button>
+    </div>
+  </header>
+
+  <!-- VIEWPORT -->
+  <div class="viewport" id="vpEl">
+    <div class="overlay-bar">
+      <div class="otag"><span class="ol">Mode:</span><span class="ov" id="ov_mode">LIVE</span></div>
+      <div class="otag"><span class="ol">Ball:</span><span class="ov" id="ov_ball">-</span></div>
+      <div class="otag"><span class="ol">Ball Z:</span><span class="ov" id="ov_ballz">-</span></div>
+      <div class="otag"><span class="ol">θ:</span><span class="ov" id="ov_theta">-</span></div>
+      <div class="otag"><span class="ol">Foot:</span><span class="ov" id="ov_foot">-</span></div>
+      <div class="otag"><span class="ol">Dist:</span><span class="ov" id="ov_dist">-</span></div>
+      <div class="otag"><span class="ol">Gain:</span><span class="ov" id="ov_gain">-</span></div>
+      <div class="otag"><span class="ol">FPS:</span><span class="ov" id="ov_fps">-</span></div>
+    </div>
+    <div class="gain-ol" id="gainOLDiv">
+      <div class="gain-ol-hdr">
+        <span>Collision Gain Overlay</span>
+        <select id="gainTypeSel" onchange="CONFIG.gainType=parseInt(this.value);document.getElementById('gtVal').textContent=this.value">
+          <option value="1">Type 1 - tanh</option><option value="2">Type 2 - ratio</option>
+          <option value="3">Type 3 - bump</option><option value="4">Type 4 - sigmoid</option>
+          <option value="5">Type 5 - sig+dir</option>
+        </select>
+      </div>
+      <canvas id="gainOLCanvas"></canvas>
+    </div>
+    <div class="meta-panel" id="metaPanel">
+      <div class="meta-hdr"><span>Recording Metadata</span><button onclick="togMeta()">×</button></div>
+      <div id="metaContent"><div class="meta-row"><span class="ml">Status</span><span class="mv">No recording loaded</span></div></div>
+    </div>
+    <div class="style-panel" id="horStylePanel">
+      <div class="style-hdr"><span>Horizon Ghost Style</span><button onclick="togHorStyle()">×</button></div>
+
+      <div class="style-row">
+        <label class="style-label">Falloff rate</label>
+        <input type="range" id="slFalloff" min="0" max="6" step="0.1" value="2.3" oninput="onStyleSlider()"/>
+        <span class="style-val" id="valFalloff">2.3</span>
+      </div>
+      <div class="style-hint">Higher = steeper dropoff at far end. 0 = uniform.</div>
+
+      <div class="style-row">
+        <label class="style-label">Min opacity</label>
+        <input type="range" id="slFloor" min="0" max="1" step="0.02" value="0.12" oninput="onStyleSlider()"/>
+        <span class="style-val" id="valFloor">0.12</span>
+      </div>
+      <div class="style-hint">Floor so distant ghosts stay visible.</div>
+
+      <div class="style-row">
+        <label class="style-label">Darkening</label>
+        <input type="range" id="slDarken" min="0" max="1" step="0.02" value="0.75" oninput="onStyleSlider()"/>
+        <span class="style-val" id="valDarken">0.75</span>
+      </div>
+      <div class="style-hint">0 = no color change. 1 = far end fully black.</div>
+
+      <div class="style-divider"></div>
+      <div class="style-section">Base colors</div>
+
+      <div class="style-row">
+        <label class="style-label">Y ball</label>
+        <input type="color" id="colYBall" value="#22d3ee" oninput="onStyleColor()"/>
+        <label class="style-label" style="margin-left:8px;">Y player</label>
+        <input type="color" id="colYPlayer" value="#60a5fa" oninput="onStyleColor()"/>
+      </div>
+      <div class="style-row">
+        <label class="style-label">X ball</label>
+        <input type="color" id="colXBall" value="#a78bfa" oninput="onStyleColor()"/>
+        <label class="style-label" style="margin-left:8px;">X foot</label>
+        <input type="color" id="colXFoot" value="#f472b6" oninput="onStyleColor()"/>
+      </div>
+
+      <div class="style-divider"></div>
+      <button class="style-reset" onclick="resetHorStyle()">Reset to defaults</button>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="pn">
+      <div class="pt c-cyan">Ball State</div>
+      <div class="row"><span class="row-label">Position (x, y)</span><span class="row-val" id="sb_ballPos" style="color:var(--cyan)">-</span></div>
+      <div class="row"><span class="row-label">z (constant)</span><span class="row-val" id="sb_ballZ" style="color:var(--cyan)">-</span></div>
+      <div class="row"><span class="row-label">Velocity (vx, vy)</span><span class="row-val" id="sb_ballVel" style="color:var(--cyan)">-</span></div>
+      <div class="row"><span class="row-label">Speed</span><span class="row-val" id="sb_ballSpd" style="color:var(--cyan)">-</span></div>
+    </div>
+    <div class="pn">
+      <div class="pt c-blue">Rod 1 - Player Y Positions</div>
+      <div class="player-grid">
+        <div class="player-card"><div class="idx">P1</div><div class="val" id="sb_p1">-</div></div>
+        <div class="player-card"><div class="idx">P2</div><div class="val" id="sb_p2">-</div></div>
+        <div class="player-card"><div class="idx">P3</div><div class="val" id="sb_p3">-</div></div>
+      </div>
+    </div>
+    <div class="pn">
+      <div class="pt c-purple">Rod 1 - Rotation &amp; Foot</div>
+      <div class="row"><span class="row-label">θ (rad / deg)</span><span class="row-val" id="sb_theta" style="color:var(--purple)">-</span></div>
+      <div class="row"><span class="row-label">x_foot</span><span class="row-val" id="sb_xfoot" style="color:var(--purple)">-</span></div>
+      <div class="row"><span class="row-label">z_foot (solver)</span><span class="row-val" id="sb_zfoot" style="color:var(--purple)">-</span></div>
+      <div class="row"><span class="row-label">z_foot (world)</span><span class="row-val" id="sb_zfootW" style="color:var(--purple)">-</span></div>
+    </div>
+    <div class="pn">
+      <div class="pt c-orange">Commanded Velocity (ω_d)</div>
+      <div class="row"><span class="row-label">ω_linear (Y-axis)</span><span class="row-val" id="sb_omL" style="color:var(--orange)">- rad/s</span></div>
+      <div class="row"><span class="row-label">→ v_y (converted)</span><span class="row-val" id="sb_vyConv" style="color:var(--orange)">- m/s</span></div>
+      <div class="row"><span class="row-label">ω_angular (X-axis)</span><span class="row-val" id="sb_omA" style="color:var(--orange)">- rad/s</span></div>
+      <div class="row"><span class="row-label">→ x_dot</span><span class="row-val" id="sb_xdot" style="color:var(--orange)">- m/s</span></div>
+      <div class="row"><span class="row-label">→ z_dot</span><span class="row-val" id="sb_zdot" style="color:var(--orange)">- m/s</span></div>
+      <div class="chart-box-sm"><canvas id="omegaChart"></canvas></div>
+    </div>
+    <div class="pn">
+      <div class="pt c-red">Collision Gain</div>
+      <div class="row"><span class="row-label">Value</span><span class="row-val" id="sb_gain" style="color:var(--red)">-</span></div>
+      <div class="row"><span class="row-label">Type</span><span class="row-val" id="gtVal" style="color:var(--red)">1</span></div>
+      <div class="chart-box"><canvas id="gainChart"></canvas></div>
+    </div>
+    <div class="pn">
+      <div class="pt c-yellow">Distance (Foot ↔ Ball)</div>
+      <div class="row"><span class="row-label">Value</span><span class="row-val" id="sb_dist" style="color:var(--yellow)">-</span></div>
+      <div class="chart-box"><canvas id="distChart"></canvas></div>
+    </div>
+    <div class="pn">
+      <div class="pt c-lime">Y Solver - Zone Weights</div>
+      <div class="row"><span class="row-label">z1</span><span class="row-val" id="sb_z1" style="color:var(--lime)">-</span></div>
+      <div class="row"><span class="row-label">z2</span><span class="row-val" id="sb_z2" style="color:var(--lime)">-</span></div>
+      <div class="row"><span class="row-label">z3</span><span class="row-val" id="sb_z3" style="color:var(--lime)">-</span></div>
+      <div class="row"><span class="row-label">y_error</span><span class="row-val" id="sb_yerr" style="color:var(--lime)">-</span></div>
+    </div>
+    <div class="pn">
+      <div class="pt c-pink">History Buffer</div>
+      <div class="row"><span class="row-label">Total frames</span><span class="row-val" id="sb_histLen" style="color:var(--pink)">0</span></div>
+      <div class="row"><span class="row-label">Y horizons</span><span class="row-val" id="sb_histY" style="color:var(--pink)">0</span></div>
+      <div class="row"><span class="row-label">X horizons</span><span class="row-val" id="sb_histX" style="color:var(--pink)">0</span></div>
+      <div class="row"><span class="row-label">Duration</span><span class="row-val" id="sb_histDur" style="color:var(--pink)">0 s</span></div>
+      <div class="row"><span class="row-label">Y horizon N</span><span class="row-val" id="sb_histYN" style="color:var(--pink)">-</span></div>
+      <div class="row"><span class="row-label">X horizon N</span><span class="row-val" id="sb_histXN" style="color:var(--pink)">-</span></div>
+    </div>
+    <div class="pn">
+      <div class="pt c-cyan">Topic Health</div>
+      <div class="topic-list" id="topicListEl"></div>
+    </div>
+  </div>
+
+  <!-- TIMELINE -->
+  <div class="timeline">
+    <div class="tl-mode">
+      <button class="tl-btn live" id="tlModeBtn" onclick="setReplayMode(!IS_REPLAY)">LIVE</button>
+      <button class="rec-btn" id="recBtn" onclick="toggleRecording()" title="Publishes /recording/cmd (Bool) — starts/stops recording on solvers and twin">
+        <span class="rec-dot"></span><span id="recLabel">START REC</span>
+      </button>
+    </div>
+    <div class="tl-slider-wrap">
+      <button class="tl-btn-sm" id="playBtn" onclick="togglePlayback()" title="Play/pause replay at real-time pace">▶</button>
+      <select class="tl-speed" id="playSpeed" onchange="PLAY_SPEED=parseFloat(this.value)" title="Playback speed">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+      <input type="range" id="tlSlider" class="tl-slider" min="0" max="0" value="0" step="1" oninput="onSliderInput(this.value)" onchange="onSliderInput(this.value)"/>
+      <span class="tl-label" id="tlLabel">0.00s / 0.00s</span>
+    </div>
+    <div class="tl-info" id="tlInfo">Frame 0 / 0</div>
+    <button class="tl-btn-sm" onclick="jumpEnd()">→End</button>
+    <button class="tl-btn-sm" onclick="clearHistory()">Clear</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════════════════════════════
+var CONFIG = {
+  field_width: 0.590, field_height: 0.340,
+  player_length: 0.045, player_height: 0.050,
+  distance_between_players: 0.090, player_distance_from_wall: 0.030,
+  distance_to_clear_zone: 0.100, player_foot_diameter: 0.015, ball_diameter: 0.030,
+  rod_one_x: 0.068, rod_three_x: 0.435,
+  steps_per_revolution: 400, steps_across_field: 525, wall_height: 0.040,
+  gainType: 1,
+};
+
+var DERIVED = {};
+function recomputeDerived() {
+  DERIVED.R_F = CONFIG.player_foot_diameter / 2;
+  DERIVED.R_B = CONFIG.ball_diameter / 2;
+  DERIVED.meters_per_step = CONFIG.field_height / CONFIG.steps_across_field;
+  DERIVED.radians_per_meter = (1 / DERIVED.meters_per_step) * (2 * Math.PI / CONFIG.steps_per_revolution);
+  DERIVED.meters_per_radian = 1 / DERIVED.radians_per_meter;
+  DERIVED.R0_Z = CONFIG.player_height - DERIVED.R_B;
+  DERIVED.ball_world_z = DERIVED.R_B;
+}
+recomputeDerived();
+
+// ════════════════════════════════════════════════════════════════
+//  LIVE STATE — written to by ROS callbacks, read by renderer
+//  only when in LIVE mode.
+// ════════════════════════════════════════════════════════════════
+var STATE = {
+  ball: { x: 0.295, y: 0.170, vx: 0, vy: 0 },
+  rod1Y: [0.030, 0.120, 0.210],
+  theta: 15 / 8 * Math.PI,
+  omegaLin: 0, omegaAng: 0,
+  pub: { x_foot:null, z_foot:null, dist:null, gain:null, z1:null, z2:null, z3:null, y_error:null },
+  pubTime: {},
+  // Latest horizons (per solver) — live view
+  yHorizon: null,   // { t, N, states: [[y1,y2,y3,r0_y,r1_y], ...], inputs: [[y_vel], ...] }
+  xHorizon: null,   // { t, N, states: [[theta,r0_x,r1_x], ...], inputs: [[omega], ...] }
+};
+
+// ════════════════════════════════════════════════════════════════
+//  UNIFIED HISTORY
+//
+//  One buffer. Every ROS message (state, command, horizon) appends
+//  an entry with its own ROS timestamp. On replay, nearest-neighbor
+//  search picks the appropriate entry per field.
+//
+//  Entry schema:
+//    {
+//      t: <seconds, ROS time>,
+//      source: 'ball' | 'rod1' | 'rod2' | 'omega' | 'gain' | 'dist' |
+//              'y_horizon' | 'x_horizon',
+//      payload: <source-specific>
+//    }
+// ════════════════════════════════════════════════════════════════
+// Recording is OFF by default. Toggled by the "START REC" button, which
+// publishes std_msgs/Bool to /recording/cmd. Solvers subscribe to the same
+// topic so they stay in sync. Each stop-start cycle produces a new JSON file.
+var RECORD = false;
+
+var HISTORY = {
+  entries: [],
+  maxLen: 20000,  // soft cap — ~16 minutes at 20Hz combined (plenty)
+  metadata: null, // filled on save or load
+  push: function(t, source, payload) {
+    if (!RECORD) return;  // skip recording when disabled
+    this.entries.push({ t: t, source: source, payload: payload });
+    if (this.entries.length > this.maxLen) this.entries.shift();
+  },
+  clear: function() { this.entries = []; this.metadata = null; },
+  // Nearest-entry lookup, bounded search
+  findNearest: function(targetT, source, startIdx) {
+    if (this.entries.length === 0) return null;
+    var best = null, bestDt = Infinity;
+    // Search from startIdx backward then forward (messages come in time order, mostly)
+    var s = startIdx !== undefined ? Math.max(0, startIdx - 50) : 0;
+    var e = startIdx !== undefined ? Math.min(this.entries.length, startIdx + 50) : this.entries.length;
+    for (var i = s; i < e; i++) {
+      var en = this.entries[i];
+      if (en.source !== source) continue;
+      var dt = Math.abs(en.t - targetT);
+      if (dt < bestDt) { bestDt = dt; best = en; }
+    }
+    if (best !== null) return best;
+    // Fallback: full scan
+    for (var i = 0; i < this.entries.length; i++) {
+      var en = this.entries[i];
+      if (en.source !== source) continue;
+      var dt = Math.abs(en.t - targetT);
+      if (dt < bestDt) { bestDt = dt; best = en; }
+    }
+    return best;
+  },
+  // Returns {t_min, t_max, count} for slider bounds
+  getBounds: function() {
+    if (this.entries.length === 0) return { t_min:0, t_max:0, count:0 };
+    return { t_min: this.entries[0].t, t_max: this.entries[this.entries.length - 1].t, count: this.entries.length };
+  },
+  // Count entries by source
+  countBy: function(source) {
+    var c = 0;
+    for (var i = 0; i < this.entries.length; i++) if (this.entries[i].source === source) c++;
+    return c;
+  }
+};
+
+// ════════════════════════════════════════════════════════════════
+//  FRAME — the "current thing to render". Either built from live
+//  STATE (live mode) or assembled from HISTORY at a given time
+//  (replay mode).
+// ════════════════════════════════════════════════════════════════
+var FRAME = {
+  t: 0,
+  ball: { x: 0.295, y: 0.170, vx: 0, vy: 0 },
+  rod1Y: [0.030, 0.120, 0.210],
+  theta: 15 / 8 * Math.PI,
+  omegaLin: 0, omegaAng: 0,
+  yHorizon: null,
+  xHorizon: null,
+  source: 'live', // 'live' or 'replay'
+};
+
+function buildFrameFromLive() {
+  FRAME.t = performance.now() / 1000;
+  FRAME.ball.x = STATE.ball.x; FRAME.ball.y = STATE.ball.y;
+  FRAME.ball.vx = STATE.ball.vx; FRAME.ball.vy = STATE.ball.vy;
+  FRAME.rod1Y[0] = STATE.rod1Y[0]; FRAME.rod1Y[1] = STATE.rod1Y[1]; FRAME.rod1Y[2] = STATE.rod1Y[2];
+  FRAME.theta = STATE.theta;
+  FRAME.omegaLin = STATE.omegaLin; FRAME.omegaAng = STATE.omegaAng;
+  FRAME.yHorizon = STATE.yHorizon;
+  FRAME.xHorizon = STATE.xHorizon;
+  FRAME.source = 'live';
+}
+
+function buildFrameFromHistory(targetT) {
+  FRAME.t = targetT;
+  FRAME.source = 'replay';
+
+  var ball = HISTORY.findNearest(targetT, 'ball');
+  if (ball) { FRAME.ball.x = ball.payload.x; FRAME.ball.y = ball.payload.y; FRAME.ball.vx = ball.payload.vx; FRAME.ball.vy = ball.payload.vy; }
+
+  var rod1 = HISTORY.findNearest(targetT, 'rod1');
+  if (rod1) { FRAME.rod1Y = rod1.payload.slice(); }
+
+  var rod2 = HISTORY.findNearest(targetT, 'rod2');
+  if (rod2) { FRAME.theta = rod2.payload; }
+
+  var om = HISTORY.findNearest(targetT, 'omega');
+  if (om) { FRAME.omegaLin = om.payload.lin; FRAME.omegaAng = om.payload.ang; }
+
+  var yh = HISTORY.findNearest(targetT, 'y_horizon');
+  // Accept a Y horizon only if it's reasonably close in time (within 1s)
+  FRAME.yHorizon = (yh && Math.abs(yh.t - targetT) < 1.0) ? yh.payload : null;
+
+  var xh = HISTORY.findNearest(targetT, 'x_horizon');
+  FRAME.xHorizon = (xh && Math.abs(xh.t - targetT) < 1.0) ? xh.payload : null;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ROS PARAM LOADER
+// ════════════════════════════════════════════════════════════════
+var PARAM_MAP = [
+  ['/table_measurements/field_height', 'field_height'],
+  ['/table_measurements/field_width', 'field_width'],
+  ['/table_measurements/player_length', 'player_length'],
+  ['/table_measurements/player_height', 'player_height'],
+  ['/table_measurements/distance_between_players', 'distance_between_players'],
+  ['/table_measurements/player_distance_from_wall', 'player_distance_from_wall'],
+  ['/table_measurements/distance_to_clear_zone', 'distance_to_clear_zone'],
+  ['/table_measurements/approximate_player_foot_diameter', 'player_foot_diameter'],
+  ['/table_measurements/ball_diameter', 'ball_diameter'],
+  ['/table_measurements/steps_per_revolution', 'steps_per_revolution'],
+  ['/table_measurements/steps_across_field', 'steps_across_field'],
+  ['/table_measurements/blue_rod_positions/rod_one', 'rod_one_x'],
+  ['/table_measurements/blue_rod_positions/rod_three', 'rod_three_x'],
+  ['/x_solver_parameters/collision_gain_type', 'gainType'],
+];
+
+// Also capture solver config for metadata snapshots
+var SOLVER_PARAM_MAP = [
+  ['/y_solver_parameters/timestep', 'y_timestep'],
+  ['/y_solver_parameters/prediction_steps', 'y_prediction_steps'],
+  ['/y_solver_parameters/max_input', 'y_max_input'],
+  ['/y_solver_parameters/input_rate_weight', 'y_input_rate_weight'],
+  ['/y_solver_parameters/cost_function/input_weight', 'y_input_weight'],
+  ['/y_solver_parameters/cost_function/position_error_weight', 'y_position_error_weight'],
+  ['/y_solver_parameters/cost_function/velocity_error_weight', 'y_velocity_error_weight'],
+  ['/x_solver_parameters/timestep', 'x_timestep'],
+  ['/x_solver_parameters/prediction_steps', 'x_prediction_steps'],
+  ['/x_solver_parameters/max_input', 'x_max_input'],
+  ['/x_solver_parameters/input_rate_weight', 'x_input_rate_weight'],
+  ['/x_solver_parameters/cost_function/input_weight', 'x_input_weight'],
+  ['/x_solver_parameters/cost_function/position_error_weight', 'x_position_error_weight'],
+  ['/x_solver_parameters/cost_function/goal_error_weight', 'x_goal_error_weight'],
+  ['/x_solver_parameters/cost_function/resting_weight', 'x_resting_weight'],
+];
+
+var SOLVER_CONFIG_SNAPSHOT = {}; // populated on reloadParams
+
+function reloadParams() {
+  if (!ros || !connected) { alert('Connect to ROS first.'); return; }
+  var btn = document.getElementById('reloadBtn');
+  btn.textContent = 'Loading...'; btn.className = 'cfg-label loading';
+
+  var allParams = PARAM_MAP.concat(SOLVER_PARAM_MAP);
+  var pending = allParams.length;
+  var changed = false;
+  var newSolverSnapshot = {};
+
+  allParams.forEach(function(entry) {
+    var p = new ROSLIB.Param({ ros: ros, name: entry[0] });
+    p.get(function(val) {
+      if (val !== null && val !== undefined) {
+        if (PARAM_MAP.indexOf(entry) >= 0) {
+          // Direct CONFIG binding
+          var oldVal = CONFIG[entry[1]];
+          CONFIG[entry[1]] = val;
+          if (oldVal !== val) changed = true;
+        } else {
+          newSolverSnapshot[entry[1]] = val;
+        }
+      }
+      pending--;
+      if (pending === 0) finishReload(changed, newSolverSnapshot);
+    });
+  });
+
+  setTimeout(function() {
+    if (pending > 0) { pending = 0; finishReload(changed, newSolverSnapshot); }
+  }, 3000);
+}
+
+function finishReload(changed, newSolverSnapshot) {
+  SOLVER_CONFIG_SNAPSHOT = newSolverSnapshot;
+  var btn = document.getElementById('reloadBtn');
+  if (changed) {
+    recomputeDerived();
+    rebuildScene();
+    document.getElementById('gainTypeSel').value = CONFIG.gainType;
+    document.getElementById('gtVal').textContent = CONFIG.gainType;
+    btn.textContent = 'Updated!'; btn.className = 'cfg-label done';
+  } else {
+    btn.textContent = 'No changes'; btn.className = 'cfg-label done';
+  }
+  setTimeout(function() { btn.textContent = 'Reload Params'; btn.className = 'cfg-label'; }, 2000);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SOLVER EQUATIONS (mirror of Python solvers, for local fallback)
+// ════════════════════════════════════════════════════════════════
+function calcXFoot(theta) { return CONFIG.rod_one_x + CONFIG.player_length * Math.sin(theta); }
+function calcZFoot(theta) { return CONFIG.player_length * Math.cos(theta); }
+function solverZtoWorld(zSolver) { return CONFIG.player_height - zSolver; }
+function calcDist(xf, zf, ballX) { return Math.sqrt(Math.pow(xf - ballX, 2) + Math.pow(zf - DERIVED.R0_Z, 2) + 1e-6); }
+function calcGain(type, xf, zf, ballX, dist) {
+  var sr = DERIVED.R_F + DERIVED.R_B;
+  switch (type) {
+    case 1: return Math.tanh(200 * Math.max(0, sr - Math.abs(dist)));
+    case 2: return (xf - ballX) / (CONFIG.field_width - xf + 1e-9);
+    case 3: return 1 / (Math.pow(0.1 * Math.abs(xf - ballX), 100) + 1);
+    case 4: return 1 / (1 + Math.exp(-300 * (sr - dist)));
+    case 5: return (1/(1+Math.exp(-300*(sr-dist)))) * (1/(1+Math.exp(-50*(xf-ballX))));
+    default: return 0;
+  }
+}
+function calcZ1(ry) { return Math.tanh(50 * Math.max(0, ry)); }
+function calcZ2(ry) { return Math.tanh(50 * Math.max(0, ry - CONFIG.field_height / 3)); }
+function calcZ3(ry) { return Math.tanh(50 * Math.max(0, ry - 2 * CONFIG.field_height / 3)); }
+function calcXDot(omega, theta) { return CONFIG.player_length * omega * Math.cos(theta); }
+function calcZDotSolver(omega, theta) { return -CONFIG.player_length * omega * Math.sin(theta); }
+function calcZDotWorld(omega, theta) { return CONFIG.player_length * omega * Math.sin(theta); }
+function omegaLinToMetersPerSec(omegaRad) { return omegaRad * DERIVED.meters_per_radian; }
+
+function getAux(key, computed) {
+  if (STATE.pub[key] !== null && STATE.pubTime[key] && (performance.now() - STATE.pubTime[key]) < 500) {
+    return { v: STATE.pub[key], s: 'ros' };
+  }
+  return { v: computed, s: 'local' };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  HORIZON MESSAGE PARSING
+//
+//  Layout convention (Option A from design discussion):
+//
+//  Y horizon: [t, y1_0,y2_0,y3_0,r0y_0,r1y_0,  y1_1,...,r1y_N,  uv_0,...,uv_{N-1}]
+//    Total: 1 + 5*(N+1) + 1*N = 6 + 6N  ==>  N = (len - 6) / 6
+//
+//  X horizon: [t, theta_0,r0x_0,r1x_0,  theta_1,...,r1x_N,  w_0,...,w_{N-1}]
+//    Total: 1 + 3*(N+1) + 1*N = 4 + 4N  ==>  N = (len - 4) / 4
+// ════════════════════════════════════════════════════════════════
+function parseYHorizon(dataArr) {
+  if (!dataArr || dataArr.length < 12) return null;
+  var N = Math.round((dataArr.length - 6) / 6);
+  if (N < 1) return null;
+  if (dataArr.length !== 6 + 6 * N) { console.warn('Y horizon length mismatch:', dataArr.length, 'expected', 6+6*N); return null; }
+  var t = dataArr[0];
+  var states = [];
+  for (var i = 0; i <= N; i++) {
+    var base = 1 + i * 5;
+    states.push([dataArr[base], dataArr[base+1], dataArr[base+2], dataArr[base+3], dataArr[base+4]]);
+  }
+  var inputs = [];
+  var inputBase = 1 + 5 * (N + 1);
+  for (var j = 0; j < N; j++) inputs.push([dataArr[inputBase + j]]);
+  return { t: t, N: N, states: states, inputs: inputs };
+}
+
+function parseXHorizon(dataArr) {
+  if (!dataArr || dataArr.length < 8) return null;
+  var N = Math.round((dataArr.length - 4) / 4);
+  if (N < 1) return null;
+  if (dataArr.length !== 4 + 4 * N) { console.warn('X horizon length mismatch:', dataArr.length, 'expected', 4+4*N); return null; }
+  var t = dataArr[0];
+  var states = [];
+  for (var i = 0; i <= N; i++) {
+    var base = 1 + i * 3;
+    states.push([dataArr[base], dataArr[base+1], dataArr[base+2]]);
+  }
+  var inputs = [];
+  var inputBase = 1 + 3 * (N + 1);
+  for (var j = 0; j < N; j++) inputs.push([dataArr[inputBase + j]]);
+  return { t: t, N: N, states: states, inputs: inputs };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TOGGLES
+// ════════════════════════════════════════════════════════════════
+var showDistVec = false, showVelArrows = true, showGainOL = false, showHorizon = true, showMeta = false;
+var showHorLabels = false;
+var IS_REPLAY = false;
+var REPLAY_T = 0; // selected replay time (in ROS-time seconds)
+var PLAYING = false;     // auto-advance in replay
+var PLAY_SPEED = 1.0;    // multiplier
+var LAST_PLAY_WALL = 0;  // wall time of last playback-advance step, seconds
+
+function togDistVec() { showDistVec = !showDistVec; document.getElementById('dvBtn').classList.toggle('tog-on', showDistVec); }
+function togVelVec() { showVelArrows = !showVelArrows; document.getElementById('velBtn').classList.toggle('tog-on', showVelArrows); }
+function togHorizon() { showHorizon = !showHorizon; document.getElementById('horBtn').classList.toggle('tog-pink', showHorizon); }
+function togHorLabels() { showHorLabels = !showHorLabels; document.getElementById('horLabelsBtn').classList.toggle('tog-on', showHorLabels); }
+function togGainOL() { showGainOL = !showGainOL; document.getElementById('goBtn').classList.toggle('tog-red', showGainOL); document.getElementById('gainOLDiv').classList.toggle('vis', showGainOL); }
+function togMeta() { showMeta = !showMeta; document.getElementById('metaBtn').classList.toggle('tog-on', showMeta); document.getElementById('metaPanel').classList.toggle('vis', showMeta); }
+
+// Horizon Style panel handlers
+var showHorStyle = false;
+function togHorStyle() {
+  showHorStyle = !showHorStyle;
+  document.getElementById('horStyleBtn').classList.toggle('tog-on', showHorStyle);
+  document.getElementById('horStylePanel').classList.toggle('vis', showHorStyle);
+}
+
+function onStyleSlider() {
+  GHOST_STYLE.falloff = parseFloat(document.getElementById('slFalloff').value);
+  GHOST_STYLE.floor = parseFloat(document.getElementById('slFloor').value);
+  GHOST_STYLE.darkening = parseFloat(document.getElementById('slDarken').value);
+  document.getElementById('valFalloff').textContent = GHOST_STYLE.falloff.toFixed(1);
+  document.getElementById('valFloor').textContent = GHOST_STYLE.floor.toFixed(2);
+  document.getElementById('valDarken').textContent = GHOST_STYLE.darkening.toFixed(2);
+}
+
+function onStyleColor() {
+  GHOST_COLORS.yBall.set(document.getElementById('colYBall').value);
+  GHOST_COLORS.yPlayer.set(document.getElementById('colYPlayer').value);
+  GHOST_COLORS.xBall.set(document.getElementById('colXBall').value);
+  GHOST_COLORS.xFoot.set(document.getElementById('colXFoot').value);
+}
+
+function resetHorStyle() {
+  document.getElementById('slFalloff').value = 2.3;
+  document.getElementById('slFloor').value = 0.12;
+  document.getElementById('slDarken').value = 0.75;
+  document.getElementById('colYBall').value = '#22d3ee';
+  document.getElementById('colYPlayer').value = '#60a5fa';
+  document.getElementById('colXBall').value = '#a78bfa';
+  document.getElementById('colXFoot').value = '#f472b6';
+  onStyleSlider();
+  onStyleColor();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RECORDING CONTROL
+//
+//  Single source of truth: the /recording/cmd topic (std_msgs/Bool).
+//  The twin publishes to it when the button is clicked; the twin and
+//  solvers all subscribe. Everyone stays in sync.
+//
+//  Each start->stop cycle is a "segment" — when recording stops, we
+//  auto-save the entries collected during that segment to JSON.
+// ════════════════════════════════════════════════════════════════
+var recCmdPub = null;   // ROSLIB.Topic publisher, created on connect
+var SEGMENT_START_T = null;  // wall time when current segment started
+var SEGMENT_START_IDX = 0;   // index into HISTORY.entries where current segment began
+
+function updateRecordIndicator() {
+  var btn = document.getElementById('recBtn');
+  var label = document.getElementById('recLabel');
+  if (RECORD) { btn.className = 'rec-btn on'; label.textContent = 'STOP REC'; }
+  else { btn.className = 'rec-btn'; label.textContent = 'START REC'; }
+}
+
+function toggleRecording() {
+  if (!connected || !recCmdPub) {
+    alert('Connect to ROS first. The record command is published to /recording/cmd.');
+    return;
+  }
+  var newState = !RECORD;
+  // Publish to the topic — the subscriber callback (below) actually flips
+  // RECORD. This keeps the twin's state synced with whatever the solvers see.
+  recCmdPub.publish(new ROSLIB.Message({ data: newState }));
+}
+
+function applyRecordingState(newState) {
+  var wasRecording = RECORD;
+  RECORD = newState;
+  if (newState && !wasRecording) {
+    // Transition: stopped -> recording. Mark segment start.
+    SEGMENT_START_T = nowSec();
+    SEGMENT_START_IDX = HISTORY.entries.length;
+    console.log('[REC] Started segment at', SEGMENT_START_T.toFixed(3));
+  } else if (!newState && wasRecording) {
+    // Transition: recording -> stopped. Auto-save the segment.
+    saveSegment();
+  }
+  updateRecordIndicator();
+}
+
+function saveSegment() {
+  var segEntries = HISTORY.entries.slice(SEGMENT_START_IDX);
+  if (segEntries.length === 0) {
+    console.log('[REC] Stopped with no entries in segment, nothing saved.');
+    return;
+  }
+  var segBounds = {
+    t_min: segEntries[0].t,
+    t_max: segEntries[segEntries.length - 1].t,
+    count: segEntries.length,
+  };
+  var metadata = {
+    format_version: '1.0',
+    saved_at: new Date().toISOString(),
+    source: 'twin_segment',
+    segment_start_wall: SEGMENT_START_T,
+    duration_seconds: segBounds.t_max - segBounds.t_min,
+    t_min: segBounds.t_min, t_max: segBounds.t_max,
+    total_entries: segBounds.count,
+    counts: countSources(segEntries),
+    config: JSON.parse(JSON.stringify(CONFIG)),
+    solver_config: JSON.parse(JSON.stringify(SOLVER_CONFIG_SNAPSHOT)),
+  };
+  var payload = { metadata: metadata, entries: segEntries };
+  var json = JSON.stringify(payload, null, 0);
+  var blob = new Blob([json], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  var ts = new Date().toISOString().replace(/[:.]/g, '-');
+  a.href = url; a.download = 'twin_segment_' + ts + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  console.log('[REC] Saved segment:', segBounds.count, 'entries,', metadata.duration_seconds.toFixed(2), 's');
+}
+
+function countSources(entries) {
+  var c = {};
+  for (var i = 0; i < entries.length; i++) {
+    var s = entries[i].source;
+    c[s] = (c[s] || 0) + 1;
+  }
+  return c;
+}
+
+function setReplayMode(enable) {
+  IS_REPLAY = enable;
+  var btn = document.getElementById('tlModeBtn');
+  btn.textContent = enable ? 'REPLAY' : 'LIVE';
+  btn.className = 'tl-btn ' + (enable ? 'replay' : 'live');
+  if (!enable) {
+    stopPlayback();
+    var sl = document.getElementById('tlSlider');
+    sl.value = sl.max;
+  }
+}
+
+function stopPlayback() {
+  if (!PLAYING) return;
+  PLAYING = false;
+  var btn = document.getElementById('playBtn');
+  btn.textContent = '\u25B6'; // play triangle
+  btn.classList.remove('active');
+}
+
+function togglePlayback() {
+  var bounds = HISTORY.getBounds();
+  if (bounds.count === 0) return;
+  if (PLAYING) { stopPlayback(); return; }
+  // If we're not in replay, start replay at the beginning.
+  if (!IS_REPLAY) {
+    setReplayMode(true);
+    REPLAY_T = bounds.t_min;
+    document.getElementById('tlSlider').value = 0;
+  }
+  // If we're already at the end, rewind to start before playing.
+  if (REPLAY_T >= bounds.t_max - 1e-3) {
+    REPLAY_T = bounds.t_min;
+    document.getElementById('tlSlider').value = 0;
+  }
+  PLAYING = true;
+  LAST_PLAY_WALL = performance.now() / 1000;
+  var btn = document.getElementById('playBtn');
+  btn.textContent = '\u23F8'; // pause glyph
+  btn.classList.add('active');
+}
+
+function onSliderInput(val) {
+  var b = HISTORY.getBounds();
+  if (b.count === 0) return;
+  stopPlayback();  // any manual scrub pauses playback
+  var sl = document.getElementById('tlSlider');
+  var idx = parseInt(val);
+  if (idx >= b.count - 1) {
+    setReplayMode(false);
+    return;
+  }
+  if (!IS_REPLAY) setReplayMode(true);
+  REPLAY_T = HISTORY.entries[idx].t;
+}
+
+function jumpEnd() {
+  stopPlayback();
+  var sl = document.getElementById('tlSlider');
+  sl.value = sl.max;
+  setReplayMode(false);
+}
+
+function clearHistory() {
+  if (!confirm('Clear all recorded history?')) return;
+  stopPlayback();
+  HISTORY.clear();
+  setReplayMode(false);
+  document.getElementById('tlSlider').max = 0;
+  document.getElementById('tlSlider').value = 0;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  TOPIC RATE TRACKING
+// ════════════════════════════════════════════════════════════════
+var TOPICS = [
+  { k:'ball', n:'/ball_pos' }, { k:'rod1', n:'/rod1_player_positions' },
+  { k:'rod2', n:'/rod2_player_positions' },
+  { k:'omega_y', n:'/omega_d_y' }, { k:'omega_x', n:'/omega_d_x' },
+  { k:'gain', n:'/collision_gain_val' }, { k:'dist', n:'/distance_val' },
+  { k:'y_hor', n:'/y_solver/horizon' }, { k:'x_hor', n:'/x_solver/horizon' },
+];
+var topicCounts = {}, topicHz = {};
+TOPICS.forEach(function(t) { topicCounts[t.k] = 0; topicHz[t.k] = 0; });
+
+var topicListEl = document.getElementById('topicListEl');
+TOPICS.forEach(function(t) {
+  var d = document.createElement('div'); d.className = 'topic-item';
+  d.innerHTML = '<div class="topic-dot" id="td_'+t.k+'"></div><span class="topic-name">'+t.n+'</span><span class="topic-hz" id="hz_'+t.k+'">- Hz</span>';
+  topicListEl.appendChild(d);
+});
+setInterval(function() {
+  TOPICS.forEach(function(t) {
+    topicHz[t.k] = topicCounts[t.k]; topicCounts[t.k] = 0;
+    var alive = topicHz[t.k] > 0;
+    document.getElementById('td_'+t.k).classList.toggle('live', alive);
+    document.getElementById('hz_'+t.k).textContent = alive ? topicHz[t.k]+' Hz' : '- Hz';
+  });
+}, 1000);
+
+// ════════════════════════════════════════════════════════════════
+//  CHARTS
+// ════════════════════════════════════════════════════════════════
+var CHART_PTS = 200;
+function makeChart(canvasId, color, bgColor) {
+  return new Chart(document.getElementById(canvasId).getContext('2d'), {
+    type: 'line',
+    data: { labels: Array(CHART_PTS).fill(''), datasets: [{ data: Array(CHART_PTS).fill(null), borderColor:color, backgroundColor:bgColor, borderWidth:1.5, pointRadius:0, tension:.3, fill:true }] },
+    options: { responsive:true, maintainAspectRatio:false, animation:false, plugins:{legend:{display:false}}, scales:{ x:{display:false}, y:{ ticks:{font:{family:'JetBrains Mono',size:8},color:'#64748b',maxTicksLimit:4}, grid:{color:'rgba(45,58,79,.5)'}, border:{color:'transparent'} } } }
+  });
+}
+function makeMultiChart(canvasId, datasets) {
+  return new Chart(document.getElementById(canvasId).getContext('2d'), {
+    type: 'line',
+    data: { labels: Array(CHART_PTS).fill(''), datasets: datasets.map(function(ds) {
+      return { label:ds.label, data:Array(CHART_PTS).fill(null), borderColor:ds.color, borderWidth:1.2, pointRadius:0, tension:.3, fill:false };
+    }) },
+    options: { responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:true, labels:{font:{family:'JetBrains Mono',size:8},color:'#94a3b8',boxWidth:10,padding:4}} }, scales:{ x:{display:false}, y:{ ticks:{font:{family:'JetBrains Mono',size:8},color:'#64748b',maxTicksLimit:4}, grid:{color:'rgba(45,58,79,.5)'}, border:{color:'transparent'} } } }
+  });
+}
+function pushPoint(chart, datasetIdx, value) {
+  chart.data.datasets[datasetIdx].data.push(value);
+  if (datasetIdx === 0) chart.data.labels.push('');
+  if (chart.data.datasets[datasetIdx].data.length > CHART_PTS) {
+    chart.data.datasets[datasetIdx].data.shift();
+    if (datasetIdx === 0) chart.data.labels.shift();
+  }
+}
+var gainChart = makeChart('gainChart', '#ef4444', 'rgba(239,68,68,.08)');
+var distChart = makeChart('distChart', '#facc15', 'rgba(250,204,21,.08)');
+var gainOLChart = makeChart('gainOLCanvas', '#ef4444', 'rgba(239,68,68,.15)');
+var omegaChart = makeMultiChart('omegaChart', [
+  { label:'ω_lin (rad/s)', color:'#f97316' },
+  { label:'ω_ang (rad/s)', color:'#a78bfa' },
+]);
+
+// ════════════════════════════════════════════════════════════════
+//  THREE.JS
+// ════════════════════════════════════════════════════════════════
+var vpEl = document.getElementById('vpEl');
+var renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x0a0e17);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+vpEl.appendChild(renderer.domElement);
+
+var scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a0e17, 0.6);
+var camera = new THREE.PerspectiveCamera(50, 1, 0.001, 10);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+var dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(0.3, -0.2, 0.6);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+scene.add(dirLight);
+var pointLight = new THREE.PointLight(0x22d3ee, 0.25, 1);
+scene.add(pointLight);
+
+var sceneObjects = [];
+var fieldMesh, ballMesh, velArrowBallX, velArrowBallY;
+var players = [];
+var distLine, distDot;
+
+// Horizon ghost pools — preallocated meshes we recycle each frame
+var GHOST_POOL_SIZE = 30; // supports horizon N up to 30
+var yGhostBalls = [];    // ghost ball positions from Y horizon
+var yGhostPlayers = [];  // ghost player torsos from Y horizon (P1..P3 per step)
+var xGhostBalls = [];    // ghost ball X positions from X horizon
+var xGhostFeet = [];     // ghost feet positions from X horizon
+var yGhostLabels = [];   // number sprites for Y horizon ghosts
+var xGhostLabels = [];   // number sprites for X horizon ghosts
+
+function clearSceneObjects() {
+  sceneObjects.forEach(function(obj) { scene.remove(obj); });
+  sceneObjects = []; players = [];
+  yGhostBalls = []; yGhostPlayers = []; xGhostBalls = []; xGhostFeet = [];
+  yGhostLabels = []; xGhostLabels = [];
+}
+
+function addToScene(obj) { scene.add(obj); sceneObjects.push(obj); return obj; }
+
+// Build a single batched LineSegments object for the grid (one draw call)
+function buildBatchedGrid(W, H, spacing, color, opacity) {
+  var positions = [];
+  for (var gx = 0; gx <= W + 1e-6; gx += spacing) {
+    positions.push(gx, 0, 0.00005, gx, H, 0.00005);
+  }
+  for (var gy = 0; gy <= H + 1e-6; gy += spacing) {
+    positions.push(0, gy, 0.00005, W, gy, 0.00005);
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  var mat = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity });
+  return new THREE.LineSegments(geo, mat);
+}
+
+// Render a number onto a small canvas and wrap it as a THREE.Sprite.
+// Sprites always face the camera, so labels stay readable from any view.
+// We recycle the texture by calling setText() on the returned sprite.
+function makeNumberSprite(color) {
+  var canvas = document.createElement('canvas');
+  canvas.width = 64; canvas.height = 64;
+  var ctx = canvas.getContext('2d');
+  var tex = new THREE.CanvasTexture(canvas);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  var mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+  var sprite = new THREE.Sprite(mat);
+  // Default world-space size; roughly 1cm tall. Tweaked by caller if needed.
+  sprite.scale.set(0.018, 0.018, 1);
+  // Render on top of everything so labels aren't occluded by ghosts/field
+  sprite.renderOrder = 999;
+
+  // Attached helper so we can update the text without reallocating the
+  // canvas or texture. Recolors via the color argument.
+  sprite.userData.setText = function(text, hexColor) {
+    ctx.clearRect(0, 0, 64, 64);
+    ctx.font = 'bold 42px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Outline so the digit reads on any background
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgba(10, 14, 23, 0.95)';
+    ctx.strokeText(text, 32, 34);
+    ctx.fillStyle = hexColor || '#ffffff';
+    ctx.fillText(text, 32, 34);
+    tex.needsUpdate = true;
+  };
+  sprite.userData.setText('0', color);
+  return sprite;
+}
+
+function rebuildScene() {
+  clearSceneObjects();
+  var W = CONFIG.field_width, H = CONFIG.field_height;
+  var HP = CONFIG.player_height, LP = CONFIG.player_length;
+  var RF = DERIVED.R_F, RB = DERIVED.R_B;
+
+  pointLight.position.set(W/2, H/2, 0.3);
+
+  // Field
+  fieldMesh = addToScene(new THREE.Mesh(
+    new THREE.PlaneGeometry(W, H),
+    new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.9 })
+  ));
+  fieldMesh.position.set(W/2, H/2, 0);
+  fieldMesh.receiveShadow = true;
+
+  // Batched grid (one LineSegments object — major FPS win)
+  addToScene(buildBatchedGrid(W, H, 0.01, 0x1a3a2a, 0.4));
+
+  // Field reference lines (still individual, they're few)
+  function addFieldLine(x1, y1, x2, y2, col, op) {
+    var fg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x1,y1,0.0002), new THREE.Vector3(x2,y2,0.0002)]);
+    addToScene(new THREE.Line(fg, new THREE.LineBasicMaterial({ color:col||0x22c55e, transparent:true, opacity:op||0.25 })));
+  }
+  addFieldLine(W/2, 0, W/2, H);
+  addFieldLine(CONFIG.rod_one_x, 0, CONFIG.rod_one_x, H, 0x3b82f6, 0.35);
+  addFieldLine(CONFIG.rod_three_x, 0, CONFIG.rod_three_x, H, 0x3b82f6, 0.15);
+  addFieldLine(0, H/3, W, H/3, 0x84cc16, 0.2);
+  addFieldLine(0, 2*H/3, W, 2*H/3, 0x84cc16, 0.2);
+
+  // Walls
+  var wallMat = new THREE.MeshStandardMaterial({ color: 0x3b2a1a, roughness: 0.7 });
+  var wt = 0.008;
+  function addWall(w, h, x, y) {
+    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, CONFIG.wall_height), wallMat);
+    m.position.set(x, y, CONFIG.wall_height/2); m.castShadow = true; addToScene(m);
+  }
+  addWall(W+2*wt, wt, W/2, -wt/2);
+  addWall(W+2*wt, wt, W/2, H+wt/2);
+  addWall(wt, H, -wt/2, H/2);
+  addWall(wt, H, W+wt/2, H/2);
+
+  // Rods
+  function mkRod(x) {
+    var m = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.003, 0.003, H+0.06, 8),
+      new THREE.MeshStandardMaterial({ color:0x9ca3af, metalness:0.6, roughness:0.3 })
+    );
+    m.position.set(x, H/2, HP); addToScene(m);
+  }
+  mkRod(CONFIG.rod_one_x); mkRod(CONFIG.rod_three_x);
+
+  // Ball
+  ballMesh = addToScene(new THREE.Mesh(
+    new THREE.SphereGeometry(RB, 24, 24),
+    new THREE.MeshStandardMaterial({ color:0xffffff, roughness:0.3, metalness:0.1 })
+  ));
+  ballMesh.castShadow = true;
+  ballMesh.position.set(W/2, H/2, RB);
+
+  velArrowBallX = addToScene(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(), 0.01, 0x22d3ee, 0.005, 0.003));
+  velArrowBallY = addToScene(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(), 0.01, 0x22d3ee, 0.005, 0.003));
+  velArrowBallX.visible = false; velArrowBallY.visible = false;
+
+  // Players
+  var footMat = new THREE.MeshStandardMaterial({ color:0x3b82f6, roughness:0.5, metalness:0.2 });
+  var torsoMat = new THREE.MeshStandardMaterial({ color:0x1d4ed8, roughness:0.5 });
+  for (var pi = 0; pi < 3; pi++) {
+    var torso = addToScene(new THREE.Mesh(new THREE.SphereGeometry(0.007, 12, 12), torsoMat));
+    torso.castShadow = true;
+    var foot = addToScene(new THREE.Mesh(new THREE.SphereGeometry(RF, 12, 12), footMat));
+    foot.castShadow = true;
+    var legGeo = new THREE.BufferGeometry();
+    legGeo.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, 0,0,0], 3));
+    var leg = addToScene(new THREE.Line(legGeo, new THREE.LineBasicMaterial({ color:0x60a5fa })));
+    var velY = addToScene(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(), 0.01, 0xf97316, 0.005, 0.003));
+    velY.visible = false;
+    var velXDot = addToScene(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(), 0.01, 0xa78bfa, 0.004, 0.003));
+    velXDot.visible = false;
+    var velZDot = addToScene(new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(), 0.01, 0xf472b6, 0.004, 0.003));
+    velZDot.visible = false;
+    players.push({ torso:torso, foot:foot, leg:leg, velY:velY, velXDot:velXDot, velZDot:velZDot });
+  }
+
+  // Distance vec
+  var dvGeo = new THREE.BufferGeometry();
+  dvGeo.setAttribute('position', new THREE.Float32BufferAttribute([0,0,0, 0,0,0], 3));
+  distLine = addToScene(new THREE.Line(dvGeo, new THREE.LineBasicMaterial({ color:0xef4444, transparent:true, opacity:0.85 })));
+  distLine.visible = false;
+  distDot = addToScene(new THREE.Mesh(new THREE.SphereGeometry(0.003, 8, 8), new THREE.MeshBasicMaterial({ color:0xef4444 })));
+  distDot.visible = false;
+
+  // Ghost pools (preallocated) — Y horizon: ghost ball + 3 ghost players per step
+  // Use cheaper geometry and MeshBasicMaterial (no lighting)
+  for (var gi = 0; gi < GHOST_POOL_SIZE; gi++) {
+    var gbMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.0 });
+    var gb = addToScene(new THREE.Mesh(new THREE.SphereGeometry(RB, 10, 10), gbMat));
+    gb.visible = false;
+    yGhostBalls.push(gb);
+
+    var playerTrio = [];
+    for (var pj = 0; pj < 3; pj++) {
+      var gpMat = new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.0 });
+      var gp = addToScene(new THREE.Mesh(new THREE.SphereGeometry(0.006, 8, 8), gpMat));
+      gp.visible = false;
+      playerTrio.push(gp);
+    }
+    yGhostPlayers.push(playerTrio);
+
+    // X horizon ghosts: ball X-position + foot position
+    var xbMat = new THREE.MeshBasicMaterial({ color: 0xa78bfa, transparent: true, opacity: 0.0 });
+    var xb = addToScene(new THREE.Mesh(new THREE.SphereGeometry(RB, 10, 10), xbMat));
+    xb.visible = false;
+    xGhostBalls.push(xb);
+
+    var xfMat = new THREE.MeshBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0.0 });
+    var xf = addToScene(new THREE.Mesh(new THREE.SphereGeometry(RF, 8, 8), xfMat));
+    xf.visible = false;
+    xGhostFeet.push(xf);
+
+    // Number labels (one per step per solver). Start hidden.
+    var yLabel = addToScene(makeNumberSprite('#e2e8f0'));
+    yLabel.visible = false;
+    yGhostLabels.push(yLabel);
+
+    var xLabel = addToScene(makeNumberSprite('#e2e8f0'));
+    xLabel.visible = false;
+    xGhostLabels.push(xLabel);
+  }
+
+  var axes = addToScene(new THREE.AxesHelper(0.04));
+  axes.position.set(-0.015, -0.015, 0);
+
+  camTarget.set(W/2, H/2, 0.01);
+}
+
+var camTheta = -Math.PI / 3, camPhi = Math.PI / 4, camRadius = 0.55;
+var camTarget = new THREE.Vector3(CONFIG.field_width/2, CONFIG.field_height/2, 0.01);
+
+rebuildScene();
+
+var isDragging = false, lastMouseX = 0, lastMouseY = 0;
+function updateCamera() {
+  camera.position.set(
+    camTarget.x + camRadius * Math.sin(camPhi) * Math.cos(camTheta),
+    camTarget.y + camRadius * Math.sin(camPhi) * Math.sin(camTheta),
+    camTarget.z + camRadius * Math.cos(camPhi)
+  );
+  camera.lookAt(camTarget); camera.up.set(0, 0, 1);
+}
+vpEl.addEventListener('mousedown', function(e) { isDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; });
+window.addEventListener('mouseup', function() { isDragging = false; });
+window.addEventListener('mousemove', function(e) {
+  if (!isDragging) return;
+  camTheta -= (e.clientX - lastMouseX) * 0.005;
+  camPhi = Math.max(0.1, Math.min(Math.PI/2 - 0.01, camPhi - (e.clientY - lastMouseY) * 0.005));
+  lastMouseX = e.clientX; lastMouseY = e.clientY;
+});
+vpEl.addEventListener('wheel', function(e) { camRadius = Math.max(0.15, Math.min(1.5, camRadius + e.deltaY * 0.0005)); e.preventDefault(); }, { passive: false });
+
+function setCam(btn, view) {
+  document.querySelectorAll('.hbtn').forEach(function(b) {
+    var keep = ['dvBtn','velBtn','goBtn','horBtn','metaBtn','horStyleBtn','horLabelsBtn'];
+    if (keep.indexOf(b.id) < 0) b.classList.remove('a');
+  });
+  btn.classList.add('a');
+  switch (view) {
+    case 'p': camTheta=-Math.PI/3; camPhi=Math.PI/4; camRadius=0.55; break;
+    case 't': camTheta=0; camPhi=0.01; camRadius=0.5; break;
+    case 's': camTheta=-Math.PI/2; camPhi=Math.PI/2-0.01; camRadius=0.5; break;
+    case 'f': camTheta=Math.PI; camPhi=Math.PI/3; camRadius=0.45; break;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  ROS CONNECTION & CALLBACKS
+//
+//  Callbacks write to STATE *and* append to HISTORY. HISTORY push
+//  uses the timestamp from the message payload (Option A) when
+//  available, otherwise falls back to performance.now()/1000.
+// ════════════════════════════════════════════════════════════════
+var ros = null, connected = false;
+
+function toggleConn() {
+  if (connected) { if (ros) ros.close(); return; }
+  ros = new ROSLIB.Ros({ url: document.getElementById('rosUrl').value.trim() });
+  ros.on('connection', function() {
+    connected = true;
+    document.getElementById('sDot').classList.add('on');
+    document.getElementById('sTxt').textContent = 'Connected';
+    document.getElementById('connectBtn').textContent = 'Disconnect';
+    document.getElementById('connectBtn').className = 'btn btn-disc';
+    document.getElementById('recBtn').disabled = false;
+    subscribeAll();
+    // Auto-load params on connect for metadata snapshot
+    reloadParams();
+  });
+  ros.on('error', function(e) { console.error('ROS error:', e); });
+  ros.on('close', function() {
+    connected = false;
+    document.getElementById('sDot').classList.remove('on');
+    document.getElementById('sTxt').textContent = 'Disconnected';
+    document.getElementById('connectBtn').textContent = 'Connect';
+    document.getElementById('connectBtn').className = 'btn btn-conn';
+    // If we were recording when the connection dropped, treat that as a
+    // stop: save whatever segment we have so far.
+    if (RECORD) applyRecordingState(false);
+    recCmdPub = null;
+    document.getElementById('recBtn').disabled = true;
+  });
+}
+
+function rosSub(name, type, cb) { new ROSLIB.Topic({ ros:ros, name:name, messageType:type }).subscribe(cb); }
+
+function nowSec() { return performance.now() / 1000; }
+
+function subscribeAll() {
+  // Recording command — both publish and subscribe so we stay in sync
+  // with whatever the solvers see (and so a second twin tab would sync too).
+  recCmdPub = new ROSLIB.Topic({ ros: ros, name: '/recording/cmd', messageType: 'std_msgs/Bool' });
+  var recCmdSub = new ROSLIB.Topic({ ros: ros, name: '/recording/cmd', messageType: 'std_msgs/Bool' });
+  recCmdSub.subscribe(function(m) { applyRecordingState(!!m.data); });
+
+  // Ball position — geometry_msgs/Twist, no header, use wall time
+  rosSub('/ball_pos', 'geometry_msgs/Twist', function(m) {
+    STATE.ball.x = m.linear.x; STATE.ball.y = m.linear.y;
+    STATE.ball.vx = m.angular.x; STATE.ball.vy = m.angular.y;
+    HISTORY.push(nowSec(), 'ball', { x: m.linear.x, y: m.linear.y, vx: m.angular.x, vy: m.angular.y });
+    topicCounts.ball++;
+  });
+
+  rosSub('/rod1_player_positions', 'std_msgs/Float64MultiArray', function(m) {
+    if (m.data && m.data.length >= 3) {
+      STATE.rod1Y = [m.data[0], m.data[1], m.data[2]];
+      HISTORY.push(nowSec(), 'rod1', [m.data[0], m.data[1], m.data[2]]);
+    }
+    topicCounts.rod1++;
+  });
+
+  rosSub('/rod2_player_positions', 'std_msgs/Float64MultiArray', function(m) {
+    if (m.data && m.data.length >= 1) {
+      STATE.theta = m.data[0] + Math.PI * 0.05;
+      HISTORY.push(nowSec(), 'rod2', STATE.theta);
+    }
+    topicCounts.rod2++;
+  });
+
+  // Y solver and X solver publish separate omega topics now
+  rosSub('/omega_d_y', 'geometry_msgs/Twist', function(m) {
+    STATE.omegaLin = m.linear.x;
+    HISTORY.push(nowSec(), 'omega', { lin: STATE.omegaLin, ang: STATE.omegaAng });
+    topicCounts.omega_y++;
+  });
+  rosSub('/omega_d_x', 'geometry_msgs/Twist', function(m) {
+    STATE.omegaAng = m.angular.x;
+    HISTORY.push(nowSec(), 'omega', { lin: STATE.omegaLin, ang: STATE.omegaAng });
+    topicCounts.omega_x++;
+  });
+
+  rosSub('/collision_gain_val', 'std_msgs/Float32', function(m) {
+    STATE.pub.gain = m.data; STATE.pubTime.gain = performance.now();
+    HISTORY.push(nowSec(), 'gain', m.data);
+    topicCounts.gain++;
+  });
+  rosSub('/distance_val', 'std_msgs/Float32', function(m) {
+    STATE.pub.dist = m.data; STATE.pubTime.dist = performance.now();
+    HISTORY.push(nowSec(), 'dist', m.data);
+    topicCounts.dist++;
+  });
+
+  // Horizons — first element is ROS timestamp
+  rosSub('/y_solver/horizon', 'std_msgs/Float64MultiArray', function(m) {
+    var parsed = parseYHorizon(m.data);
+    if (parsed) {
+      STATE.yHorizon = parsed;
+      HISTORY.push(parsed.t, 'y_horizon', parsed);
+      topicCounts.y_hor++;
+    }
+  });
+  rosSub('/x_solver/horizon', 'std_msgs/Float64MultiArray', function(m) {
+    var parsed = parseXHorizon(m.data);
+    if (parsed) {
+      STATE.xHorizon = parsed;
+      HISTORY.push(parsed.t, 'x_horizon', parsed);
+      topicCounts.x_hor++;
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  RENDER LOOP — reads from FRAME, not STATE
+// ════════════════════════════════════════════════════════════════
+var VEL_SCALE = 0.3;
+function setArrow(arrow, origin, dx, dy, dz, scale) {
+  var mag = Math.sqrt(dx*dx + dy*dy + dz*dz);
+  if (mag < 1e-5) { arrow.visible = false; return; }
+  arrow.visible = true;
+  arrow.position.set(origin.x, origin.y, origin.z);
+  arrow.setDirection(new THREE.Vector3(dx, dy, dz).normalize());
+  arrow.setLength(Math.min(mag * scale, 0.12), 0.005, 0.003);
+}
+
+var frameCount = 0, fpsTime = performance.now(), fps = 0, chartTick = 0;
+var lastVPW = 0, lastVPH = 0;
+
+function resizeIfNeeded() {
+  var rect = vpEl.getBoundingClientRect();
+  var w = Math.round(rect.width), h = Math.round(rect.height);
+  if (w > 0 && h > 0 && (w !== lastVPW || h !== lastVPH)) {
+    lastVPW = w; lastVPH = h;
+    renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+}
+
+function srcTag(s) { return '<span class="src-tag '+s+'">'+s+'</span>'; }
+
+function updateSliderBounds() {
+  var b = HISTORY.getBounds();
+  var sl = document.getElementById('tlSlider');
+  sl.max = Math.max(0, b.count - 1);
+  if (!IS_REPLAY) sl.value = sl.max; // tracks live
+}
+
+// Hide all ghosts (used in live mode without horizon, or when horizon disabled)
+function hideAllGhosts() {
+  for (var i = 0; i < GHOST_POOL_SIZE; i++) {
+    yGhostBalls[i].visible = false;
+    for (var j = 0; j < 3; j++) yGhostPlayers[i][j].visible = false;
+    xGhostBalls[i].visible = false;
+    xGhostFeet[i].visible = false;
+    yGhostLabels[i].visible = false;
+    xGhostLabels[i].visible = false;
+  }
+}
+
+// Base colors for ghost tinting — can be overridden via the Style panel
+var GHOST_COLORS = {
+  yBall:   new THREE.Color(0x22d3ee),  // cyan
+  yPlayer: new THREE.Color(0x60a5fa),  // blue
+  xBall:   new THREE.Color(0xa78bfa),  // purple
+  xFoot:   new THREE.Color(0xf472b6),  // pink
+};
+
+// Tunable ghost styling parameters. Defaults match what we had hard-coded
+// before; now they can be adjusted live via the Horizon Style panel.
+var GHOST_STYLE = {
+  falloff:   2.3,   // exponential decay rate along horizon
+  floor:     0.12,  // minimum opacity (so tail stays visible)
+  darkening: 0.75,  // how much color darkens at the far end (0..1)
+};
+
+/**
+ * Compute opacity + color tint for a single ghost at horizon step i (1..N).
+ * Formulas:
+ *   u = (i-1)/(N-1)                      // normalized position 0..1 along horizon
+ *   opacity = max(floor, exp(-falloff*u))
+ *   brightness = 1 - darkening*u
+ *   color = baseColor * brightness
+ */
+function ghostStyle(i, N, baseColor) {
+  var u = (N > 1) ? (i - 1) / (N - 1) : 0;
+  var alpha = Math.max(GHOST_STYLE.floor, Math.exp(-GHOST_STYLE.falloff * u));
+  var brightness = 1.0 - GHOST_STYLE.darkening * u;
+  return {
+    opacity: alpha,
+    color: baseColor.clone().multiplyScalar(brightness),
+  };
+}
+
+// Render Y horizon ghosts: ball at r0_y (y_pred_step), 3 players at y1,y2,y3
+function renderYHorizonGhosts(yHor) {
+  var N = Math.min(yHor.N, GHOST_POOL_SIZE - 1);
+  for (var i = 0; i < GHOST_POOL_SIZE; i++) {
+    if (i > N || i === 0) {
+      yGhostBalls[i].visible = false;
+      for (var j = 0; j < 3; j++) yGhostPlayers[i][j].visible = false;
+      yGhostLabels[i].visible = false;
+      continue;
+    }
+    var state = yHor.states[i];
+    if (!state) { yGhostBalls[i].visible = false; yGhostLabels[i].visible = false; continue; }
+
+    var ballStyle = ghostStyle(i, yHor.N, GHOST_COLORS.yBall);
+    var playerStyle = ghostStyle(i, yHor.N, GHOST_COLORS.yPlayer);
+
+    yGhostBalls[i].visible = true;
+    yGhostBalls[i].position.set(FRAME.ball.x, state[3], DERIVED.ball_world_z);
+    yGhostBalls[i].material.opacity = ballStyle.opacity * 0.5;
+    yGhostBalls[i].material.color.copy(ballStyle.color);
+
+    for (var p = 0; p < 3; p++) {
+      yGhostPlayers[i][p].visible = true;
+      yGhostPlayers[i][p].position.set(CONFIG.rod_one_x, state[p], CONFIG.player_height);
+      yGhostPlayers[i][p].material.opacity = playerStyle.opacity;
+      yGhostPlayers[i][p].material.color.copy(playerStyle.color);
+    }
+
+    // Label: floats above the ghost ball
+    if (showHorLabels) {
+      yGhostLabels[i].visible = true;
+      yGhostLabels[i].position.set(FRAME.ball.x, state[3], DERIVED.ball_world_z + DERIVED.R_B + 0.012);
+      yGhostLabels[i].userData.setText(String(i), '#e2e8f0');
+    } else {
+      yGhostLabels[i].visible = false;
+    }
+  }
+}
+
+// Render X horizon ghosts: ball at r0_x, foot at x_foot(theta)
+function renderXHorizonGhosts(xHor) {
+  var N = Math.min(xHor.N, GHOST_POOL_SIZE - 1);
+  for (var i = 0; i < GHOST_POOL_SIZE; i++) {
+    if (i > N || i === 0) {
+      xGhostBalls[i].visible = false;
+      xGhostFeet[i].visible = false;
+      xGhostLabels[i].visible = false;
+      continue;
+    }
+    var state = xHor.states[i];
+    if (!state) { xGhostBalls[i].visible = false; xGhostFeet[i].visible = false; xGhostLabels[i].visible = false; continue; }
+    var theta_pred = state[0], r0_x_pred = state[1];
+
+    var ballStyle = ghostStyle(i, xHor.N, GHOST_COLORS.xBall);
+    var footStyle = ghostStyle(i, xHor.N, GHOST_COLORS.xFoot);
+
+    xGhostBalls[i].visible = true;
+    xGhostBalls[i].position.set(r0_x_pred, FRAME.ball.y, DERIVED.ball_world_z);
+    xGhostBalls[i].material.opacity = ballStyle.opacity * 0.5;
+    xGhostBalls[i].material.color.copy(ballStyle.color);
+
+    var xf_pred = calcXFoot(theta_pred);
+    var zf_pred = calcZFoot(theta_pred);
+    var zfw = solverZtoWorld(zf_pred);
+
+    var nearY = FRAME.rod1Y[0];
+    var bestDy = Math.abs(FRAME.rod1Y[0] - FRAME.ball.y);
+    for (var k = 1; k < 3; k++) {
+      var dy = Math.abs(FRAME.rod1Y[k] - FRAME.ball.y);
+      if (dy < bestDy) { bestDy = dy; nearY = FRAME.rod1Y[k]; }
+    }
+    xGhostFeet[i].visible = true;
+    xGhostFeet[i].position.set(xf_pred, nearY, zfw);
+    xGhostFeet[i].material.opacity = footStyle.opacity;
+    xGhostFeet[i].material.color.copy(footStyle.color);
+
+    // Label: floats above the X ghost ball (same X as ball ghost, slight Z bump)
+    if (showHorLabels) {
+      xGhostLabels[i].visible = true;
+      xGhostLabels[i].position.set(r0_x_pred, FRAME.ball.y, DERIVED.ball_world_z + DERIVED.R_B + 0.012);
+      xGhostLabels[i].userData.setText(String(i), '#e2e8f0');
+    } else {
+      xGhostLabels[i].visible = false;
+    }
+  }
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  try {
+  frameCount++;
+  var now = performance.now();
+  if (now - fpsTime >= 1000) { fps = frameCount; frameCount = 0; fpsTime = now; }
+
+  // Playback: advance REPLAY_T at real-time pace (scaled by PLAY_SPEED)
+  if (PLAYING && IS_REPLAY) {
+    var wallNow = now / 1000;
+    var dt = wallNow - LAST_PLAY_WALL;
+    LAST_PLAY_WALL = wallNow;
+    REPLAY_T += dt * PLAY_SPEED;
+    var pbounds = HISTORY.getBounds();
+    if (REPLAY_T >= pbounds.t_max) {
+      REPLAY_T = pbounds.t_max;
+      stopPlayback();
+      // Don't auto-exit replay — user may want to scrub back
+    }
+    // Update slider position to match REPLAY_T by searching for nearest entry
+    // index by time. Linear scan is fine at this scale.
+    if (pbounds.count > 0) {
+      var lo = 0, hi = HISTORY.entries.length - 1, mid;
+      while (lo < hi) {
+        mid = (lo + hi) >> 1;
+        if (HISTORY.entries[mid].t < REPLAY_T) lo = mid + 1;
+        else hi = mid;
+      }
+      document.getElementById('tlSlider').value = lo;
+    }
+  }
+
+  // Build the frame we're rendering
+  if (IS_REPLAY) buildFrameFromHistory(REPLAY_T);
+  else buildFrameFromLive();
+
+  var theta = FRAME.theta;
+
+  // Aux values — published preferred in live, computed in replay (we don't store aux yet)
+  var xf, zf, dist, gain, z1, z2, z3, yerr;
+  if (IS_REPLAY) {
+    // Replay uses pure local computation from the historical state
+    xf = { v: calcXFoot(theta), s: 'hist' };
+    zf = { v: calcZFoot(theta), s: 'hist' };
+    dist = { v: calcDist(xf.v, zf.v, FRAME.ball.x), s: 'hist' };
+    gain = { v: calcGain(CONFIG.gainType, xf.v, zf.v, FRAME.ball.x, dist.v), s: 'hist' };
+    z1 = { v: calcZ1(FRAME.ball.y), s: 'hist' };
+    z2 = { v: calcZ2(FRAME.ball.y), s: 'hist' };
+    z3 = { v: calcZ3(FRAME.ball.y), s: 'hist' };
+  } else {
+    xf = getAux('x_foot', calcXFoot(theta));
+    zf = getAux('z_foot', calcZFoot(theta));
+    dist = getAux('dist', calcDist(xf.v, zf.v, FRAME.ball.x));
+    gain = getAux('gain', calcGain(CONFIG.gainType, xf.v, zf.v, FRAME.ball.x, dist.v));
+    z1 = getAux('z1', calcZ1(FRAME.ball.y));
+    z2 = getAux('z2', calcZ2(FRAME.ball.y));
+    z3 = getAux('z3', calcZ3(FRAME.ball.y));
+  }
+  var yerrCalc = (z1.v*(1-z2.v)*(1-z3.v)*FRAME.rod1Y[0] + z2.v*(1-z3.v)*FRAME.rod1Y[1] + z3.v*FRAME.rod1Y[2]) - FRAME.ball.y;
+  yerr = IS_REPLAY ? { v: yerrCalc, s: 'hist' } : getAux('y_error', yerrCalc);
+
+  var footWorldZ = solverZtoWorld(zf.v);
+  var ballWorldZ = DERIVED.ball_world_z;
+  var vy_mps = omegaLinToMetersPerSec(FRAME.omegaLin);
+  var xDot = calcXDot(FRAME.omegaAng, theta);
+  var zDotSolver = calcZDotSolver(FRAME.omegaAng, theta);
+  var zDotWorld = calcZDotWorld(FRAME.omegaAng, theta);
+
+  // Ball
+  ballMesh.position.set(FRAME.ball.x, FRAME.ball.y, ballWorldZ);
+
+  if (showVelArrows) {
+    var bpos = { x:FRAME.ball.x, y:FRAME.ball.y, z:ballWorldZ };
+    setArrow(velArrowBallX, bpos, FRAME.ball.vx, 0, 0, VEL_SCALE);
+    setArrow(velArrowBallY, bpos, 0, FRAME.ball.vy, 0, VEL_SCALE);
+  } else { velArrowBallX.visible = false; velArrowBallY.visible = false; }
+
+  // Players
+  for (var i = 0; i < 3; i++) {
+    var py = FRAME.rod1Y[i];
+    var p = players[i];
+    p.torso.position.set(CONFIG.rod_one_x, py, CONFIG.player_height);
+    p.foot.position.set(xf.v, py, footWorldZ);
+    var lp = p.leg.geometry.attributes.position;
+    lp.array[0] = CONFIG.rod_one_x; lp.array[1] = py; lp.array[2] = CONFIG.player_height;
+    lp.array[3] = xf.v;             lp.array[4] = py; lp.array[5] = footWorldZ;
+    lp.needsUpdate = true;
+    if (showVelArrows) {
+      setArrow(p.velY, { x:CONFIG.rod_one_x, y:py, z:CONFIG.player_height }, 0, vy_mps, 0, VEL_SCALE);
+      var fpos = { x:xf.v, y:py, z:footWorldZ };
+      setArrow(p.velXDot, fpos, xDot, 0, 0, VEL_SCALE);
+      setArrow(p.velZDot, fpos, 0, 0, zDotWorld, VEL_SCALE);
+    } else { p.velY.visible = false; p.velXDot.visible = false; p.velZDot.visible = false; }
+  }
+
+  // Distance vec
+  if (showDistVec) {
+    var bestIdx = 0, bestDy = Infinity;
+    for (var j = 0; j < 3; j++) {
+      var dy = Math.abs(FRAME.rod1Y[j] - FRAME.ball.y);
+      if (dy < bestDy) { bestDy = dy; bestIdx = j; }
+    }
+    var nearY = FRAME.rod1Y[bestIdx];
+    distLine.visible = true; distDot.visible = true;
+    var dlp = distLine.geometry.attributes.position;
+    dlp.array[0] = xf.v;        dlp.array[1] = nearY; dlp.array[2] = footWorldZ;
+    dlp.array[3] = FRAME.ball.x; dlp.array[4] = nearY; dlp.array[5] = ballWorldZ;
+    dlp.needsUpdate = true;
+    distDot.position.set((xf.v + FRAME.ball.x)/2, nearY, (footWorldZ + ballWorldZ)/2);
+    var gv = gain.v;
+    distLine.material.color.setRGB(Math.min(1, gv*2.5), Math.max(0, 1-gv*3), 0);
+    distDot.material.color.copy(distLine.material.color);
+  } else { distLine.visible = false; distDot.visible = false; }
+
+  // Horizon ghosts
+  if (showHorizon) {
+    if (FRAME.yHorizon) renderYHorizonGhosts(FRAME.yHorizon);
+    else {
+      for (var gi = 0; gi < GHOST_POOL_SIZE; gi++) {
+        yGhostBalls[gi].visible = false;
+        for (var gj = 0; gj < 3; gj++) yGhostPlayers[gi][gj].visible = false;
+        yGhostLabels[gi].visible = false;
+      }
+    }
+    if (FRAME.xHorizon) renderXHorizonGhosts(FRAME.xHorizon);
+    else {
+      for (var gi2 = 0; gi2 < GHOST_POOL_SIZE; gi2++) {
+        xGhostBalls[gi2].visible = false;
+        xGhostFeet[gi2].visible = false;
+        xGhostLabels[gi2].visible = false;
+      }
+    }
+  } else hideAllGhosts();
+
+  // Charts (live mode only — replay charts would be confusing without full redraw)
+  chartTick++;
+  if (chartTick % 2 === 0 && !IS_REPLAY) {
+    pushPoint(gainChart, 0, gain.v); gainChart.update();
+    pushPoint(distChart, 0, dist.v); distChart.update();
+    pushPoint(omegaChart, 0, FRAME.omegaLin);
+    pushPoint(omegaChart, 1, FRAME.omegaAng);
+    omegaChart.update();
+    if (showGainOL) { pushPoint(gainOLChart, 0, gain.v); gainOLChart.update(); }
+  }
+
+  updateCamera();
+
+  // Slider tracking
+  updateSliderBounds();
+  var bounds = HISTORY.getBounds();
+  var tDur = bounds.t_max - bounds.t_min;
+  var tCur = IS_REPLAY ? (REPLAY_T - bounds.t_min) : tDur;
+  document.getElementById('tlLabel').textContent = tCur.toFixed(2) + 's / ' + tDur.toFixed(2) + 's';
+  document.getElementById('tlInfo').textContent = 'Frame ' + document.getElementById('tlSlider').value + ' / ' + bounds.count;
+
+  // Sidebar
+  var tagFn = IS_REPLAY ? function() { return srcTag('hist'); } : function(s) { return srcTag(s); };
+  document.getElementById('sb_ballPos').textContent = '('+FRAME.ball.x.toFixed(4)+', '+FRAME.ball.y.toFixed(4)+') m';
+  document.getElementById('sb_ballZ').textContent = ballWorldZ.toFixed(4)+' m (R_B = '+DERIVED.R_B.toFixed(4)+')';
+  document.getElementById('sb_ballVel').textContent = '('+FRAME.ball.vx.toFixed(3)+', '+FRAME.ball.vy.toFixed(3)+') m/s';
+  var spd = Math.sqrt(FRAME.ball.vx*FRAME.ball.vx + FRAME.ball.vy*FRAME.ball.vy);
+  document.getElementById('sb_ballSpd').textContent = spd.toFixed(4)+' m/s';
+  document.getElementById('sb_p1').textContent = FRAME.rod1Y[0].toFixed(3)+' m';
+  document.getElementById('sb_p2').textContent = FRAME.rod1Y[1].toFixed(3)+' m';
+  document.getElementById('sb_p3').textContent = FRAME.rod1Y[2].toFixed(3)+' m';
+  document.getElementById('sb_theta').textContent = theta.toFixed(3)+' / '+(theta*180/Math.PI).toFixed(1)+'\u00B0';
+  document.getElementById('sb_xfoot').innerHTML = xf.v.toFixed(4)+' m '+tagFn(xf.s);
+  document.getElementById('sb_zfoot').innerHTML = zf.v.toFixed(4)+' m '+tagFn(zf.s);
+  document.getElementById('sb_zfootW').textContent = footWorldZ.toFixed(4)+' m';
+  document.getElementById('sb_omL').textContent = FRAME.omegaLin.toFixed(3)+' rad/s';
+  document.getElementById('sb_vyConv').textContent = vy_mps.toFixed(4)+' m/s';
+  document.getElementById('sb_omA').textContent = FRAME.omegaAng.toFixed(3)+' rad/s';
+  document.getElementById('sb_xdot').textContent = xDot.toFixed(4)+' m/s';
+  document.getElementById('sb_zdot').textContent = zDotSolver.toFixed(4)+' m/s';
+  document.getElementById('sb_gain').innerHTML = gain.v.toFixed(6)+' '+tagFn(gain.s);
+  document.getElementById('sb_dist').innerHTML = dist.v.toFixed(4)+' m '+tagFn(dist.s);
+  document.getElementById('sb_z1').textContent = z1.v.toFixed(4);
+  document.getElementById('sb_z2').textContent = z2.v.toFixed(4);
+  document.getElementById('sb_z3').textContent = z3.v.toFixed(4);
+  document.getElementById('sb_yerr').textContent = yerr.v.toFixed(4)+' m';
+  document.getElementById('sb_histLen').textContent = bounds.count;
+  document.getElementById('sb_histY').textContent = HISTORY.countBy('y_horizon');
+  document.getElementById('sb_histX').textContent = HISTORY.countBy('x_horizon');
+  document.getElementById('sb_histDur').textContent = tDur.toFixed(2) + ' s';
+  document.getElementById('sb_histYN').textContent = STATE.yHorizon ? STATE.yHorizon.N : '-';
+  document.getElementById('sb_histXN').textContent = STATE.xHorizon ? STATE.xHorizon.N : '-';
+
+  // Overlay
+  var modeEl = document.getElementById('ov_mode');
+  modeEl.textContent = IS_REPLAY ? 'REPLAY' : 'LIVE';
+  modeEl.parentElement.classList.toggle('replay', IS_REPLAY);
+  document.getElementById('ov_ball').textContent = '('+FRAME.ball.x.toFixed(3)+', '+FRAME.ball.y.toFixed(3)+')';
+  document.getElementById('ov_ballz').textContent = ballWorldZ.toFixed(3)+' m';
+  document.getElementById('ov_theta').textContent = theta.toFixed(2)+' rad';
+  document.getElementById('ov_foot').textContent = '('+xf.v.toFixed(3)+', '+zf.v.toFixed(3)+')';
+  document.getElementById('ov_dist').textContent = dist.v.toFixed(4)+' m';
+  document.getElementById('ov_gain').textContent = gain.v.toFixed(4);
+  document.getElementById('ov_fps').textContent = fps;
+
+  resizeIfNeeded();
+  renderer.render(scene, camera);
+  } catch(e) { console.error('Render error:', e); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SAVE / LOAD
+// ════════════════════════════════════════════════════════════════
+function buildMetadata() {
+  var b = HISTORY.getBounds();
+  return {
+    format_version: '1.0',
+    saved_at: new Date().toISOString(),
+    duration_seconds: b.t_max - b.t_min,
+    t_min: b.t_min, t_max: b.t_max,
+    total_entries: b.count,
+    counts: {
+      ball: HISTORY.countBy('ball'),
+      rod1: HISTORY.countBy('rod1'),
+      rod2: HISTORY.countBy('rod2'),
+      omega: HISTORY.countBy('omega'),
+      gain: HISTORY.countBy('gain'),
+      dist: HISTORY.countBy('dist'),
+      y_horizon: HISTORY.countBy('y_horizon'),
+      x_horizon: HISTORY.countBy('x_horizon'),
+    },
+    config: JSON.parse(JSON.stringify(CONFIG)),
+    solver_config: JSON.parse(JSON.stringify(SOLVER_CONFIG_SNAPSHOT)),
+  };
+}
+
+function saveHistory() {
+  var b = HISTORY.getBounds();
+  if (b.count === 0) { alert('No history to save.'); return; }
+  var payload = { metadata: buildMetadata(), entries: HISTORY.entries };
+  var json = JSON.stringify(payload, null, 0);
+  var blob = new Blob([json], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  var ts = new Date().toISOString().replace(/[:.]/g, '-');
+  a.href = url; a.download = 'foosball_history_' + ts + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  HISTORY.metadata = payload.metadata;
+  renderMetadataPanel();
+}
+
+function loadHistoryFile(input) {
+  if (!input.files || !input.files[0]) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var payload = JSON.parse(e.target.result);
+      if (!payload.entries || !payload.metadata) { alert('Invalid history file.'); return; }
+
+      var twinEntries;
+      if (payload.solver === 'x' || payload.solver === 'y') {
+        // Solver-format file — convert to twin-format entries
+        twinEntries = convertSolverEntries(payload.entries, payload.solver);
+        console.log('Detected ' + payload.solver.toUpperCase() + '-solver format, converted',
+                    payload.entries.length, 'solver steps into', twinEntries.length, 'twin entries.');
+      } else {
+        // Twin-format file — use entries as-is
+        twinEntries = payload.entries;
+        console.log('Detected twin format,', twinEntries.length, 'entries.');
+      }
+
+      HISTORY.clear();
+      HISTORY.entries = twinEntries;
+      HISTORY.metadata = payload.metadata;
+      setReplayMode(true);
+      var sl = document.getElementById('tlSlider');
+      sl.max = HISTORY.entries.length - 1;
+      sl.value = 0;
+      REPLAY_T = HISTORY.entries[0].t;
+      // Apply saved config if present
+      if (payload.metadata.config) {
+        for (var k in payload.metadata.config) {
+          if (CONFIG.hasOwnProperty(k)) CONFIG[k] = payload.metadata.config[k];
+        }
+        recomputeDerived();
+        rebuildScene();
+      }
+      renderMetadataPanel();
+      if (!showMeta) togMeta();
+    } catch (err) {
+      console.error('Load error:', err);
+      alert('Error loading file: ' + err.message);
+    }
+  };
+  reader.readAsText(input.files[0]);
+  input.value = '';
+}
+
+/**
+ * Convert solver-format entries to twin-format entries. Each solver step
+ * produces multiple twin entries (one for the state, one for u_opt, one
+ * for the horizon), all sharing the same timestamp. This lets the existing
+ * buildFrameFromHistory() lookup-by-source work unchanged on loaded data.
+ */
+function convertSolverEntries(solverEntries, solver) {
+  var out = [];
+  for (var i = 0; i < solverEntries.length; i++) {
+    var e = solverEntries[i];
+    var t = e.t;
+    if (solver === 'x') {
+      // X solver state -> rod2 (theta) + partial ball info
+      if (e.state && e.state.theta !== undefined) {
+        out.push({ t: t, source: 'rod2', payload: e.state.theta });
+      }
+      if (e.state && e.state.r0_x !== undefined) {
+        // The X solver tracks r0_x and r1_x for the ball. The twin's 'ball'
+        // entries carry full {x,y,vx,vy}. We only know x/vx from X solver;
+        // emit a 'ball' entry with what we have — buildFrameFromHistory
+        // will fall back to the most recent value for the missing fields.
+        out.push({ t: t, source: 'ball', payload: {
+          x: e.state.r0_x, y: 0.170,  // default, overridden by Y if present
+          vx: e.state.r1_x || 0, vy: 0,
+        }});
+      }
+      if (e.u_opt && e.u_opt.omega !== undefined) {
+        out.push({ t: t, source: 'omega', payload: { lin: 0, ang: e.u_opt.omega } });
+      }
+      if (e.horizon) {
+        out.push({ t: t, source: 'x_horizon', payload: {
+          t: e.horizon.t, N: e.horizon.N,
+          // Convert structured dicts to flat arrays for buildFrameFromHistory
+          // compatibility (parseXHorizon format)
+          states: e.horizon.states.map(function(s) { return [s.theta, s.r0_x, s.r1_x]; }),
+          inputs: e.horizon.inputs.map(function(u) { return [u.omega]; }),
+        }});
+      }
+    } else if (solver === 'y') {
+      // Y solver state -> rod1 (player positions) + ball r0_y
+      if (e.state) {
+        out.push({ t: t, source: 'rod1', payload: [e.state.y1, e.state.y2, e.state.y3] });
+        out.push({ t: t, source: 'ball', payload: {
+          x: 0.295,  // default, overridden by X if present
+          y: e.state.r0_y,
+          vx: 0, vy: e.state.r1_y || 0,
+        }});
+      }
+      if (e.u_opt && e.u_opt.omega_linear_rad_s !== undefined) {
+        out.push({ t: t, source: 'omega', payload: { lin: e.u_opt.omega_linear_rad_s, ang: 0 } });
+      }
+      if (e.horizon) {
+        out.push({ t: t, source: 'y_horizon', payload: {
+          t: e.horizon.t, N: e.horizon.N,
+          states: e.horizon.states.map(function(s) {
+            return [s.y1, s.y2, s.y3, s.r0_y, s.r1_y];
+          }),
+          inputs: e.horizon.inputs.map(function(u) { return [u.y_vel]; }),
+        }});
+      }
+    }
+  }
+  // Entries are already in time order, no need to sort
+  return out;
+}
+
+function renderMetadataPanel() {
+  var el = document.getElementById('metaContent');
+  var m = HISTORY.metadata;
+  if (!m) { el.innerHTML = '<div class="meta-row"><span class="ml">Status</span><span class="mv">No recording loaded</span></div>'; return; }
+  var html = '';
+  html += '<div class="meta-row"><span class="ml">Saved</span><span class="mv">' + m.saved_at.substring(0,19).replace('T',' ') + '</span></div>';
+  html += '<div class="meta-row"><span class="ml">Duration</span><span class="mv">' + m.duration_seconds.toFixed(2) + 's</span></div>';
+  html += '<div class="meta-row"><span class="ml">Entries</span><span class="mv">' + m.total_entries + '</span></div>';
+  if (m.counts) {
+    html += '<div class="meta-row"><span class="ml">Y horizons</span><span class="mv">' + m.counts.y_horizon + '</span></div>';
+    html += '<div class="meta-row"><span class="ml">X horizons</span><span class="mv">' + m.counts.x_horizon + '</span></div>';
+  }
+  html += '<div class="meta-row"><span class="ml">Field</span><span class="mv">' + m.config.field_width.toFixed(3) + ' × ' + m.config.field_height.toFixed(3) + 'm</span></div>';
+  html += '<div class="meta-row"><span class="ml">Gain type</span><span class="mv">' + m.config.gainType + '</span></div>';
+  if (m.solver_config) {
+    if (m.solver_config.y_prediction_steps !== undefined)
+      html += '<div class="meta-row"><span class="ml">Y N</span><span class="mv">' + m.solver_config.y_prediction_steps + '</span></div>';
+    if (m.solver_config.x_prediction_steps !== undefined)
+      html += '<div class="meta-row"><span class="ml">X N</span><span class="mv">' + m.solver_config.x_prediction_steps + '</span></div>';
+    if (m.solver_config.y_timestep !== undefined)
+      html += '<div class="meta-row"><span class="ml">Y dt</span><span class="mv">' + m.solver_config.y_timestep + 's</span></div>';
+    if (m.solver_config.x_timestep !== undefined)
+      html += '<div class="meta-row"><span class="ml">X dt</span><span class="mv">' + m.solver_config.x_timestep + 's</span></div>';
+  }
+  el.innerHTML = html;
+}
+
+// Init
+document.getElementById('recBtn').disabled = true;
+updateRecordIndicator();
+requestAnimationFrame(function() { resizeIfNeeded(); updateCamera(); animate(); });
+window.addEventListener('resize', function() { resizeIfNeeded(); });
+</script>
+</body>
+</html>

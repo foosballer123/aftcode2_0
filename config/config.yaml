@@ -38,7 +38,7 @@ camera_parameters:
   
 # Y Solver parameters
 y_solver_parameters:
-  timestep: 0.0166667 # seconds
+  timestep: 0.05 # seconds
   max_input: 31 # rad/sec (converted to meters per second in solver)
   prediction_steps: 2
   input_rate_weight: 0.2
@@ -58,6 +58,7 @@ x_solver_parameters:
     resting_weight: 0
     position_error_weight: 0
     velocity_error_weight: 15
+    ball_vel_weight: 50
     goal_error_weight: 200 # was 50
   collision_gain_type: 1  
   

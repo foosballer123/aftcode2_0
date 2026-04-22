@@ -57,21 +57,10 @@ class MPC_Solver:
         self.ball_flag = False
         self.rad_flag = False
         self.ball_pos = Twist()
-        #self.motor1_pos = Float64MultiArray()
         self.motor2_rad = Float64MultiArray()
         
         self.omega_cmd = Twist()
-        #self.rod_vel = 0
         self.rod_angular_vel = 0
-        
-        self.P_D = rospy.get_param('/table_measurements/distance_between_players') # distance between the players along the rod (even zones)
-        self.Z_D = rospy.get_param('/table_measurements/distance_to_clear_zone')
-        self.W_D = rospy.get_param('/table_measurements/player_distance_from_wall')
-        self.zone_padding = 0.05
-        
-        self.Y = rospy.get_param('/table_measurements/field_height')
-        self.Y_MAX = self.Y
-        self.Y_MIN = 0
         
         self.X = rospy.get_param('/table_measurements/field_width')
         self.X_MAX = self.X
@@ -96,10 +85,7 @@ class MPC_Solver:
         if self.ball_flag == False:
             self.ball_flag = True
         self.ball_pos = msg
-        
-    #def player_callback(self, msg):
-    #    self.motor1_pos = self.pps * msg.data  # converting steps into pixels
-              
+             
     def angular_callback(self, msg):
         offset = math.pi*0.05
         self.motor2_rad = msg.data[0] + offset
@@ -140,10 +126,8 @@ class MPC_Solver:
         
         # make the ball a state variable (state variables use discrete time format x_n+1 = f(theta_n) )
         r0_x = model.set_variable(var_type='_x', var_name='r0_x', shape=(1, 1))
-        r0_y = model.set_variable(var_type='_x', var_name='r0_y', shape=(1, 1))
         #r0_z = model.set_variable(var_type='_x', var_name='r0_z', shape=(1, 1)) 
         r1_x = model.set_variable(var_type='_x', var_name='r1_x', shape=(1, 1))
-        r1_y = model.set_variable(var_type='_x', var_name='r1_y', shape=(1, 1))
         # no r1_Z
         
         model.set_rhs("theta", theta + omega * self.dt)
@@ -204,11 +188,9 @@ class MPC_Solver:
         print("Collision Gain Equation (Type "+str(collision_gain_type)+"): ", collision_gain, "\n")
         
         model.set_rhs("r0_x", r0_x + r1_x * self.dt)
-        model.set_rhs("r0_y", r0_y + r1_y * self.dt)
         #model.set_rhs("r0_z", casadi.SX(self.H_P - self.R_B)) # constant
         model.set_rhs("r1_x", (1-collision_gain)*r1_x + (collision_gain) * self.L_P * omega * casadi.cos(theta))
-        model.set_rhs("r1_y", r1_y) 
-		
+
         model.set_expression(
             expr_name="lagrange_term", expr=input_weight * omega**2 + resting_weight * (casadi.fmax(0, casadi.fabs(theta - ((15/8)*casadi.pi)) - 0.1))**2 + goal_error_weight * (r0_x - self.X_MAX)**2
             # the resting term includes dead-zone / dead-band
@@ -242,8 +224,6 @@ class MPC_Solver:
         
         self.mpc.bounds["lower", "_x", "r0_x"] = self.X_MIN 
         self.mpc.bounds["upper", "_x", "r0_x"] = self.X_MAX 
-        self.mpc.bounds["lower", "_x", "r0_y"] = self.Y_MIN 
-        self.mpc.bounds["upper", "_x", "r0_y"] = self.Y_MAX
         
         suppress_ipopt = {
             'ipopt.print_level': 0,
@@ -255,7 +235,7 @@ class MPC_Solver:
         self.mpc.setup()
         print("MPC solver defined!")
 
-        self.mpc.x0 = np.array([0, 0, 0, 0, 0])
+        self.mpc.x0 = np.array([0, 0, 0])
         self.mpc.set_initial_guess()
         print("Initial state variables:", model.x.labels())
         print("Initial input variables:", model.u.labels())
@@ -270,12 +250,10 @@ class MPC_Solver:
              
                 theta = self.motor2_rad
                 r0_x = float(self.ball_pos.linear.x)
-                r0_y = float(self.ball_pos.linear.y)
                 r1_x = float(self.ball_pos.angular.x)
-                r1_y = float(self.ball_pos.angular.y)
-               
+              
                 u_opt = self.mpc.make_step(
-                    np.array([theta, r0_x, r0_y, r1_x, r1_y])
+                    np.array([theta, r0_x, r1_x,])
                 )
                 
                 # --- EXTRACTION LOGIC ---
