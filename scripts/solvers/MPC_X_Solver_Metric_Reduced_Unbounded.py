@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 
+'''
+Claudes version of the MPC_X_Solver_Metric that integrates with its digital web twin interface.
+This code began with the core functionality of the MPC_X_Solver but may include changes that are not included in the original.
+This is now the main functional solver that is used for Aftcode2_0.
+
+Before the system responds to any control inputs produced by this solver make sure to run combiner_node.by in the sandbox folder.
+
+Benjamin Simpson 4/22/2026
+'''
+
 import do_mpc
 from casadi import *
 from casadi.tools import *
