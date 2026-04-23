@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
 
+'''
+Computer vision node created to work with the new basler overhead mounted camera.
+While the old version of this code used RGB8 encoding, the new version uses mono8 to produce a higher framerate.
+Aside from the new encoding this code also differs from the original in that it produces measurements using the metric system.
+However, the core logic is essentially the same as that found in computer_vision_bgr8 which this is based off of.
+
+Make sure to launch the Basler (Pylon) camera node before launching this file, the instructions are in instruction_to_run.txt.
+
+Benjamin Simpson 4/22/2026
+'''
+
 import rospy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
