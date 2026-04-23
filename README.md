@@ -1,3 +1,11 @@
+Official repository for the AFT 2.0 project at UNCW
+
+Platform Funded By: The Office of Innovation and Commercialization
+Platform Created By: Charlie Caputo, Joe Scott, and Carter Thumm
+Platform Developed By: Benjamin Simpson, Charlie Caputo 
+With Contributions From: Anna Knorr and Braiden Fallbright
+Under Mentorship From: Dr. Hamed Saeidi
+
 Instructions to run:
 - Launch roscore (roscore)
 - Navigate to config folder and load desired config (rosparam load config.yaml)
