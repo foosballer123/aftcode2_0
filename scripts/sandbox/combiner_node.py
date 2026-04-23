@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 
+'''
+Created by Claude to fix the problem of of the MPC_X_Solver and MPC_Y_Solver publishing to the same topic.
+This node now needs to be run before the system responds to any control inputs produced by either solver.
+
+Benjamin Simpson 4/22/2026
+'''
+
 import rospy
 from geometry_msgs.msg import Twist
 
